@@ -181,20 +181,9 @@ h2.sec{font-size:13px;letter-spacing:1px;text-transform:uppercase;color:var(--g1
     <label for="fNotes">Site notes (gate width, parking, pets, access…)</label>
     <textarea id="fNotes" placeholder="Anything the estimator or crew should know"></textarea>
   </div>
-  <div class="bar"><div class="in">
-    <button class="btn sec" id="btnSummary">📄 Summary</button>
+  <div class="bar"><div class="in" style="grid-template-columns:1fr">
     <button class="btn blue" id="btnSync">☁ Save to Drive</button>
   </div></div>
-</div>
-
-<!-- SUMMARY / REPORT -->
-<div id="screenSummary" class="screen rep" hidden>
-  <div class="hdr no-print">
-    <button class="ib" id="btnSumBack" aria-label="Back">‹</button>
-    <h1>Summary<small>Customer-ready report</small></h1>
-    <button class="ib" id="btnPrint" aria-label="Print">🖨</button>
-  </div>
-  <div class="pad" id="sumBody"></div>
 </div>
 
 <!-- PHOTO EDITOR -->
@@ -280,8 +269,8 @@ const SERVICES = {
   rock:    { label: 'Rock / Stone',     icon: '🪨', color: '#7f8c8d', measure: 'area',   cat: 'rock',  mats: ROCK_MATS,  depth: 2 },
   dirt:    { label: 'Fill Dirt / Soil', icon: '🟤', color: '#a0522d', measure: 'area',   cat: 'dirt',  mats: DIRT_MATS,  depth: 2 },
   sod:     { label: 'Sod',              icon: '🌱', color: '#27ae60', measure: 'area',   cat: 'sod',   mats: SOD_MATS },
-  edging:  { label: 'Edging',           icon: '➖', color: '#e67e22', measure: 'length', addon: 'edging' },
-  fabric:  { label: 'Weed Fabric',      icon: '🧵', color: '#8e44ad', measure: 'length', addon: 'geoTextile' },
+  edging:  { label: 'Composite Edging',           icon: '➖', color: '#e67e22', measure: 'length', addon: 'edging' },
+  fabric:  { label: 'Geo-Textile Weed Fabric',      icon: '🧵', color: '#8e44ad', measure: 'length', addon: 'geoTextile' },
   hedge:   { label: 'Hedge / Shrub Trim', icon: '🌳', color: '#16a085', measure: 'length', height: true },
   plants:  { label: 'Plants / Trees',   icon: '🪴', color: '#e91e63', measure: 'count' },
   removal: { label: 'Removal / Haul-off', icon: '🚛', color: '#c0392b', measure: 'area' },
@@ -533,10 +522,23 @@ function drawShapes(ctx, photo, tf, u, o) {
 }
 
 /* Flatten the photo + annotations at full resolution (JPEG blob) */
+/* Company logo stamped in the bottom-right corner of every annotated photo (originals stay untouched).
+   Needs watermark.png next to index.html. If the file is missing, photos are simply saved without it. */
+let WM_IMG = null;
+function loadWatermark() {
+  if (!WM_IMG) WM_IMG = new Promise(res => { const i = new Image(); i.onload = () => res(i); i.onerror = () => res(null); i.src = 'watermark.png'; });
+  return WM_IMG;
+}
+async function drawWatermark(ctx, w, h) {
+  const im = await loadWatermark(); if (!im) return;
+  const sz = Math.round(Math.min(w, h) * 0.16), m = Math.round(Math.min(w, h) * 0.025);
+  ctx.save(); ctx.globalAlpha = 0.6; ctx.drawImage(im, w - sz - m, h - sz - m, sz, sz); ctx.restore();
+}
 async function renderAnnotated(photo, srcBlob) {
   const bmp = await createImageBitmap(srcBlob);
   const c = document.createElement('canvas'); c.width = bmp.width; c.height = bmp.height;
   const ctx = c.getContext('2d'); ctx.drawImage(bmp, 0, 0);
+  await drawWatermark(ctx, bmp.width, bmp.height);
   drawShapes(ctx, photo, p => p, Math.max(1, bmp.width / 450));
   return new Promise(r => c.toBlob(r, 'image/jpeg', 0.85));
 }
@@ -815,9 +817,6 @@ const App = {
     $('#fileCam').onchange = e => this.addPhotos(e.target.files);
     $('#filePick').onchange = e => this.addPhotos(e.target.files);
     $('#btnAddManual').onclick = async () => { const r = await this.openItemSheet({}); this.itemsChanged(); };
-    $('#btnSummary').onclick = () => this.showSummary();
-    $('#btnSumBack').onclick = () => this.showScreen('job');
-    $('#btnPrint').onclick = () => window.print();
     $('#btnSync').onclick = () => this.sync();
     [['fCustomer', 'customerName'], ['fAddress', 'propertyAddress'], ['fType', 'projectType']].forEach(([id, k]) => $('#' + id).addEventListener('input', e => { JOB.job[k] = e.target.value; this.touch(); this.renderJobHead(); }));
     $('#fCrew').addEventListener('input', e => { JOB.crew = e.target.value; Settings.crew = e.target.value; this.touch(); });
@@ -839,7 +838,7 @@ const App = {
   },
   showScreen(n) {
     this.screen = n;
-    ['Home', 'Job', 'Summary'].forEach(s => $('#screen' + s).hidden = s.toLowerCase() !== n);
+    ['Home', 'Job'].forEach(s => $('#screen' + s).hidden = s.toLowerCase() !== n);
     window.scrollTo(0, 0);
   },
   /* ---- home ---- */
@@ -1018,28 +1017,6 @@ const App = {
       function done(r) { sh.hidden = true; resolve(r); }
       renderDims(); dimText(); refresh(false); sh.hidden = false; sh.querySelector('.sheet').scrollTop = 0;
     });
-  },
-  /* ---- summary ---- */
-  async showSummary() {
-    const body = $('#sumBody'); const J = JOB.job; const T = serviceTotals(); const L = laborSuggestion();
-    const rows = JOB.items.map(i => '<tr><td><b>' + esc(i.name) + '</b></td><td>' + SERVICES[i.service].icon + ' ' + esc(SERVICES[i.service].label) + (i.material ? '<br><small>' + esc(i.material) + '</small>' : '') + '</td><td>' + qtyText(i) + (i.depthIn ? '<br><small>' + i.depthIn + '" deep ≈ ' + cuYds(i).toFixed(1) + ' cu yd</small>' : '') + (i.heightFt ? '<br><small>' + i.heightFt + ' ft tall</small>' : '') + (i.dims && i.dims.length ? '<br><small>' + i.dims.map(d => d[0] + '×' + d[1]).join(' + ') + ' ft</small>' : '') + '</td><td>' + esc(i.notes || '') + (i.verified ? '' : '<br><small style="color:#b9770e">approx.</small>') + '</td></tr>').join('');
-    const trows = T.map(t => '<tr><td>' + SERVICES[t.service].icon + ' ' + esc(SERVICES[t.service].label) + '</td><td>' + t.count + '</td><td>' + (t.measure === 'area' ? fmt(t.qty, 0) + ' sq ft' : t.measure === 'length' ? fmt(t.qty, 1) + ' lin ft' : fmt(t.qty, 0) + ' ea') + '</td><td>' + (t.cy ? t.cy.toFixed(1) + ' cu yd (order ' + roundUpTenth(t.cy).toFixed(1) + ')' : '') + '</td></tr>').join('');
-    const pics = [];
-    for (const p of JOB.photos) {
-      const u = await ensurePhotoUrl(p.id, 'ann'); const its = JOB.items.filter(i => i.photoId === p.id);
-      pics.push('<div class="pg"><img src="' + u + '" alt=""><div><b>' + esc(p.caption || '') + '</b>' + (its.length ? ' <small>' + its.map(i => esc(i.name)).join(', ') + '</small>' : '') + '</div></div>');
-    }
-    const internal = L.lines.length ? '<div class="int no-print"><b>Crew-only: suggested labor ≈ ' + fmt(L.hours, 2) + ' hrs</b> (from the production rates in ⚙ Settings)<br>' + L.lines.map(l => esc(SERVICES[l.service].label) + ': ' + fmt(l.qty, 1) + ' ÷ ' + l.rate + '/hr = ' + l.hours.toFixed(2) + ' h').join('<br>') + '<br><small>Not shown on the printed report. Sent to the estimator as a starting point.</small></div>' : '<div class="int no-print">Crew-only: set production rates in ⚙ Settings to get suggested labor hours here and in the estimator.</div>';
-    body.innerHTML = '<div style="display:flex;gap:14px;align-items:center"><img src="https://static.wixstatic.com/media/99a075_f0b64d954a90417ba2ac87c06f85804a~mv2.png" style="height:64px;width:auto" onerror="this.remove()" alt=""><div><h1>Site Survey &amp; Scope of Work</h1><div style="color:#7f8c8d;font-size:13px">WS Lawn Care Services, LLC · ' + fmtDate(JOB.createdAt) + '</div></div></div>'
-      + '<table style="margin-top:12px"><tr><th>Customer</th><td>' + esc(J.customerName) + '</td></tr><tr><th>Property</th><td>' + esc(J.propertyAddress) + '</td></tr><tr><th>Project</th><td>' + esc(J.projectType) + '</td></tr><tr><th>Surveyed by</th><td>' + esc(JOB.crew || '') + '</td></tr></table>'
-      + '<h2 class="sec">Scope of work</h2>' + (rows ? '<table><tr><th>Area</th><th>Work</th><th>Quantity</th><th>Notes</th></tr>' + rows + '</table>' : '<p class="empty">No scope items yet.</p>')
-      + (trows ? '<h2 class="sec">Totals</h2><table><tr><th>Work</th><th>Areas</th><th>Total</th><th>Material</th></tr>' + trows + '</table>' : '')
-      + internal
-      + (pics.length ? '<h2 class="sec">Site photos</h2>' + pics.join('') : '')
-      + (JOB.siteNotes ? '<h2 class="sec">Site notes</h2><p style="white-space:pre-wrap">' + esc(JOB.siteNotes) + '</p>' : '')
-      + '<p class="hint" style="margin-top:14px">Measurements taken from photos are approximate and are confirmed on site before work begins. Final pricing is provided in a separate estimate.</p>'
-      + '<div class="foot"><b>You Grow It, We Mow It!®</b><br>Commitment Without Compromise · Jesus First Before Profits<br>Call or text 321.209.0668 · support@wslawncareservicesllc.com</div>';
-    this.showScreen('summary');
   },
   /* ---- Drive ---- */
   async sync() {
