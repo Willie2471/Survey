@@ -55,7 +55,7 @@ h2.sec{font-size:13px;letter-spacing:1px;text-transform:uppercase;color:var(--g1
 .strip .ph span{display:block;font-size:11px;color:var(--mut);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .empty{color:var(--mut);text-align:center;padding:22px 8px;font-size:14px}
 .bar{position:fixed;left:0;right:0;bottom:0;background:#fff;border-top:1px solid var(--line);padding:10px 12px calc(10px + env(safe-area-inset-bottom));z-index:30}
-.bar .in{max-width:760px;margin:0 auto;display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px}
+.bar .in{max-width:760px;margin:0 auto;display:grid;grid-template-columns:1fr 1fr;gap:8px}
 .bar button{font-size:13px;padding:0 6px;min-height:52px}
 #toast{position:fixed;left:50%;bottom:110px;transform:translateX(-50%);background:#2c3e50;color:#fff;padding:10px 18px;border-radius:10px;font-weight:600;font-size:14px;z-index:9999;display:none;max-width:90%;text-align:center}
 .overlay{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:1000;display:flex;align-items:flex-end;justify-content:center}
@@ -114,6 +114,10 @@ h2.sec{font-size:13px;letter-spacing:1px;text-transform:uppercase;color:var(--g1
 #frameBar[hidden]{display:none!important}
 #frameBar .fbtx{flex:1}
 #frameBar a.btn{display:inline-flex;align-items:center;min-height:40px;padding:0 12px;text-decoration:none;font-size:13px;white-space:nowrap}
+.dimrow{display:grid;grid-template-columns:1fr auto 1fr 48px;gap:8px;align-items:center;margin-top:8px}
+.dimrow span{font-weight:700;color:var(--mut)}
+.dimrow input{margin:0}
+.dimrow button{min-height:48px;padding:0}
 </style>
 </head>
 <body>
@@ -180,7 +184,6 @@ h2.sec{font-size:13px;letter-spacing:1px;text-transform:uppercase;color:var(--g1
   <div class="bar"><div class="in">
     <button class="btn sec" id="btnSummary">📄 Summary</button>
     <button class="btn blue" id="btnSync">☁ Save to Drive</button>
-    <button class="btn orange" id="btnToEstimator">➜ Estimator</button>
   </div></div>
 </div>
 
@@ -224,6 +227,12 @@ h2.sec{font-size:13px;letter-spacing:1px;text-transform:uppercase;color:var(--g1
     <div id="itMatWrap"><label for="itMat">Material</label><select id="itMat"></select></div>
     <div id="itMeasureWrap" hidden><label for="itMeasure">Measured as</label>
       <select id="itMeasure"><option value="area">Area (sq ft)</option><option value="length">Length (lin ft)</option><option value="count">Count (each)</option></select></div>
+    <div id="itDimWrap" hidden>
+      <label>Length × width in feet (the total fills in below)</label>
+      <div id="itDims"></div>
+      <button type="button" class="btn gray" id="itDimAdd" style="width:100%;min-height:44px;margin-top:6px">＋ Add another section</button>
+      <div class="hint" id="itDimTot"></div>
+    </div>
     <div class="qrow"><div><label for="itValue" id="itValueLbl">Quantity</label><input id="itValue" type="number" inputmode="decimal" step="any" placeholder="0"></div><div class="unit" id="itUnit">sq ft</div></div>
     <div class="hint" id="itCalcHint"></div>
     <div id="itDepthWrap"><label for="itDepth">Depth (inches)</label><input id="itDepth" type="number" inputmode="decimal" step="any"><div class="hint" id="itCy"></div></div>
@@ -779,6 +788,12 @@ function serviceTotals() {
   });
   return out;
 }
+// Friendly Drive file names: "Photo 01 - Front bed - annotated". The number keeps repeated captions apart.
+function photoFileNames(p, idx) {
+  const cap = String(p.caption || '').replace(/[\\/:*?"<>|]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 50);
+  const base = 'Photo ' + String(idx + 1).padStart(2, '0') + (cap ? ' - ' + cap : '');
+  return { orig: base + ' - original', ann: base + ' - annotated' };
+}
 function exportSurvey() {
   const s = JSON.parse(JSON.stringify(JOB)); delete s.sync;
   s.labor = laborSuggestion(); s.totals = serviceTotals(); s.drive = { folderId: JOB.sync.folderId || '' };
@@ -804,7 +819,6 @@ const App = {
     $('#btnSumBack').onclick = () => this.showScreen('job');
     $('#btnPrint').onclick = () => window.print();
     $('#btnSync').onclick = () => this.sync();
-    $('#btnToEstimator').onclick = () => this.toEstimator();
     [['fCustomer', 'customerName'], ['fAddress', 'propertyAddress'], ['fType', 'projectType']].forEach(([id, k]) => $('#' + id).addEventListener('input', e => { JOB.job[k] = e.target.value; this.touch(); this.renderJobHead(); }));
     $('#fCrew').addEventListener('input', e => { JOB.crew = e.target.value; Settings.crew = e.target.value; this.touch(); });
     $('#fNotes').addEventListener('input', e => { JOB.siteNotes = e.target.value; this.touch(); });
@@ -860,7 +874,7 @@ const App = {
       const cards = [];
       for (const it of JOB.items) {
         const s = SERVICES[it.service]; const u = it.photoId ? await ensurePhotoUrl(it.photoId, 'ann') : '';
-        const extra = [it.material, it.depthIn ? it.depthIn + '" deep' : '', it.heightFt ? it.heightFt + ' ft tall' : ''].filter(Boolean).join(' · ');
+        const extra = [it.material, it.depthIn ? it.depthIn + '" deep' : '', it.heightFt ? it.heightFt + ' ft tall' : '', it.dims && it.dims.length ? it.dims.map(d => d[0] + '×' + d[1]).join(' + ') + ' ft' : ''].filter(Boolean).join(' · ');
         cards.push('<div class="card" data-id="' + it.id + '"><div class="th" style="' + (u ? 'background-image:url(' + u + ')' : 'background:' + s.color + '22') + '">' + (u ? '' : s.icon) + '</div><div class="tx"><div class="nm">' + esc(it.name) + '</div><div class="sub">' + s.icon + ' ' + esc(s.label) + ' — <b>' + qtyText(it) + '</b></div>' + (extra ? '<div class="sub">' + esc(extra) + '</div>' : '') + '<div class="sub">' + (it.verified ? '<span class="badge ok">✓ verified</span>' : it.method === 'photo' ? '<span class="badge est">≈ photo estimate</span>' : '<span class="badge est">typed in</span>') + '</div></div></div>');
       }
       box.innerHTML = cards.join('');
@@ -936,6 +950,27 @@ const App = {
       $('#itEdge').checked = false;
       $('#itDelete').hidden = !it;
       let curMat = it ? it.material : '';
+      let dims = it && Array.isArray(it.dims) && it.dims.length ? it.dims.map(d => [d[0], d[1]]) : [['', '']];
+      const goodDims = () => dims.filter(d => parseFloat(d[0]) > 0 && parseFloat(d[1]) > 0);
+      const dimTotal = () => goodDims().reduce((t, d) => t + parseFloat(d[0]) * parseFloat(d[1]), 0);
+      function dimText() {
+        const t = dimTotal(), g = goodDims();
+        $('#itDimTot').textContent = t > 0 ? 'Total: ' + fmt(t, 1) + ' sq ft' + (g.length > 1 ? '  (' + g.map(d => d[0] + '×' + d[1]).join(' + ') + ')' : '') : '';
+      }
+      function applyDims() { const t = dimTotal(); if (t > 0) $('#itValue').value = Math.round(t * 10) / 10; dimText(); refresh(false); }
+      function renderDims() {
+        const box = $('#itDims'); box.innerHTML = '';
+        dims.forEach((d, i) => {
+          const row = document.createElement('div'); row.className = 'dimrow';
+          row.innerHTML = '<input type="number" inputmode="decimal" step="any" placeholder="Length"><span>×</span><input type="number" inputmode="decimal" step="any" placeholder="Width"><button type="button" class="btn gray" aria-label="Remove section">✕</button>';
+          const ins = $$('input', row); ins[0].value = d[0]; ins[1].value = d[1];
+          const upd = () => { dims[i] = [ins[0].value, ins[1].value]; applyDims(); };
+          ins[0].oninput = upd; ins[1].oninput = upd;
+          $('button', row).onclick = () => { if (dims.length > 1) dims.splice(i, 1); else dims[0] = ['', '']; renderDims(); applyDims(); };
+          box.appendChild(row);
+        });
+      }
+      $('#itDimAdd').onclick = () => { dims.push(['', '']); renderDims(); const ins = $$('#itDims input'); ins[ins.length - 2].focus(); };
       const perim = shape && photo ? shapePerimeterFt(photo, shape) : null;
       function refresh(userPicked) {
         $$('.chip', chips).forEach(c => c.classList.toggle('on', c.dataset.k === service));
@@ -944,6 +979,7 @@ const App = {
         if (mats) { const sel = $('#itMat'); const keep = userPicked ? '' : curMat; sel.innerHTML = '<option value="">— decide at estimate —</option>' + mats.map(m => '<option>' + esc(m) + '</option>').join(''); sel.value = keep && mats.includes(keep) ? keep : ''; if (userPicked) curMat = ''; }
         $('#itMeasureWrap').hidden = !(s && s.measure === 'any' && !shape);
         const m = !s ? (kind || 'area') : s.measure === 'any' ? (shape ? kind : $('#itMeasure').value) : s.measure;
+        $('#itDimWrap').hidden = !(m === 'area' && !shape);
         $('#itUnit').textContent = MEASURE_UNIT[m]; $('#itValueLbl').textContent = MEASURE_LABEL[m] + (shape ? ' (from photo — editable)' : '');
         $('#itDepthWrap').hidden = !(s && s.depth != null);
         if (s && s.depth != null && userPicked && !$('#itDepth').value) $('#itDepth').value = s.depth;
@@ -963,13 +999,15 @@ const App = {
       $('#itSave').onclick = () => {
         if (!service) { toast('Pick the type of work first'); return; }
         const s = SERVICES[service]; const m = s.measure === 'any' ? (shape ? kind : $('#itMeasure').value) : s.measure;
-        const val = parseFloat($('#itValue').value); if (!(val > 0)) { toast('Enter a quantity greater than 0'); return; }
+        let val = parseFloat($('#itValue').value); if (!(val > 0) && dimTotal() > 0) val = Math.round(dimTotal() * 10) / 10;
+        if (!(val > 0)) { toast('Enter a quantity greater than 0'); return; }
         const item = it || { id: uid(), createdAt: nowIso() };
         Object.assign(item, {
           name: $('#itName').value.trim() || s.label, service, measure: m, value: m === 'length' ? Math.round(val * 10) / 10 : Math.round(val * 100) / 100,
           material: s.mats ? $('#itMat').value : '', depthIn: s.depth != null ? (parseFloat($('#itDepth').value) || s.depth) : 0, heightFt: s.height ? (parseFloat($('#itHeight').value) || 0) : 0,
           notes: $('#itNotes').value.trim(), verified: $('#itVerified').checked, method: shape ? 'photo' : (item.method || 'manual'),
-          photoId: photo ? photo.id : (item.photoId || ''), shapeId: shape ? shape.id : (item.shapeId || '')
+          photoId: photo ? photo.id : (item.photoId || ''), shapeId: shape ? shape.id : (item.shapeId || ''),
+          dims: (m === 'area' && !shape && Math.abs(dimTotal() - val) < 0.6) ? goodDims().map(d => [parseFloat(d[0]), parseFloat(d[1])]) : []
         });
         item.override = !!(calcRounded != null && Math.abs(item.value - calcRounded) > 0.01);
         if (!it) JOB.items.push(item);
@@ -978,13 +1016,13 @@ const App = {
         done('saved');
       };
       function done(r) { sh.hidden = true; resolve(r); }
-      refresh(false); sh.hidden = false; sh.querySelector('.sheet').scrollTop = 0;
+      renderDims(); dimText(); refresh(false); sh.hidden = false; sh.querySelector('.sheet').scrollTop = 0;
     });
   },
   /* ---- summary ---- */
   async showSummary() {
     const body = $('#sumBody'); const J = JOB.job; const T = serviceTotals(); const L = laborSuggestion();
-    const rows = JOB.items.map(i => '<tr><td><b>' + esc(i.name) + '</b></td><td>' + SERVICES[i.service].icon + ' ' + esc(SERVICES[i.service].label) + (i.material ? '<br><small>' + esc(i.material) + '</small>' : '') + '</td><td>' + qtyText(i) + (i.depthIn ? '<br><small>' + i.depthIn + '" deep ≈ ' + cuYds(i).toFixed(1) + ' cu yd</small>' : '') + (i.heightFt ? '<br><small>' + i.heightFt + ' ft tall</small>' : '') + '</td><td>' + esc(i.notes || '') + (i.verified ? '' : '<br><small style="color:#b9770e">approx.</small>') + '</td></tr>').join('');
+    const rows = JOB.items.map(i => '<tr><td><b>' + esc(i.name) + '</b></td><td>' + SERVICES[i.service].icon + ' ' + esc(SERVICES[i.service].label) + (i.material ? '<br><small>' + esc(i.material) + '</small>' : '') + '</td><td>' + qtyText(i) + (i.depthIn ? '<br><small>' + i.depthIn + '" deep ≈ ' + cuYds(i).toFixed(1) + ' cu yd</small>' : '') + (i.heightFt ? '<br><small>' + i.heightFt + ' ft tall</small>' : '') + (i.dims && i.dims.length ? '<br><small>' + i.dims.map(d => d[0] + '×' + d[1]).join(' + ') + ' ft</small>' : '') + '</td><td>' + esc(i.notes || '') + (i.verified ? '' : '<br><small style="color:#b9770e">approx.</small>') + '</td></tr>').join('');
     const trows = T.map(t => '<tr><td>' + SERVICES[t.service].icon + ' ' + esc(SERVICES[t.service].label) + '</td><td>' + t.count + '</td><td>' + (t.measure === 'area' ? fmt(t.qty, 0) + ' sq ft' : t.measure === 'length' ? fmt(t.qty, 1) + ' lin ft' : fmt(t.qty, 0) + ' ea') + '</td><td>' + (t.cy ? t.cy.toFixed(1) + ' cu yd (order ' + roundUpTenth(t.cy).toFixed(1) + ')' : '') + '</td></tr>').join('');
     const pics = [];
     for (const p of JOB.photos) {
@@ -1017,9 +1055,11 @@ const App = {
       JOB.sync.folderId = r.folderId; JOB.sync.folderUrl = r.folderUrl;
       const total = JOB.photos.length; let n = 0;
       for (const p of JOB.photos) {
-        n++; const rec = await DB.get('photos', p.id); if (!rec) continue;
-        if (!p.driveOrigId) { say('Uploading photo ' + n + ' of ' + total + '…'); const pr = await API.post('savePhoto', { folderId: r.folderId, fileName: p.id + '_orig', dataUrl: await blobToDataUrl(rec.orig) }); p.driveOrigId = pr.fileId; }
-        if ((p.annDirty || !p.driveAnnId) && rec.ann) { say('Uploading annotated photo ' + n + ' of ' + total + '…'); const pr = await API.post('savePhoto', { folderId: r.folderId, fileName: p.id + '_ann', dataUrl: await blobToDataUrl(rec.ann) }); p.driveAnnId = pr.fileId; p.annDirty = false; }
+        n++; const rec = await DB.get('photos', p.id); if (!rec) continue; const nm = photoFileNames(p, n - 1);
+        if (!p.driveOrigId) { say('Uploading photo ' + n + ' of ' + total + '…'); const pr = await API.post('savePhoto', { folderId: r.folderId, fileName: nm.orig, dataUrl: await blobToDataUrl(rec.orig) }); p.driveOrigId = pr.fileId; p.driveOrigName = nm.orig; }
+        else if (p.driveOrigName !== nm.orig) { try { await API.post('renamePhoto', { folderId: r.folderId, fileId: p.driveOrigId, fileName: nm.orig }); p.driveOrigName = nm.orig; } catch (e) { /* older script: keep going */ } }
+        if ((p.annDirty || !p.driveAnnId) && rec.ann) { say('Uploading annotated photo ' + n + ' of ' + total + '…'); const pr = await API.post('savePhoto', { folderId: r.folderId, fileName: nm.ann, dataUrl: await blobToDataUrl(rec.ann), replaceFileId: p.driveAnnId || '' }); p.driveAnnId = pr.fileId; p.driveAnnName = nm.ann; p.annDirty = false; }
+        else if (p.driveAnnId && p.driveAnnName !== nm.ann) { try { await API.post('renamePhoto', { folderId: r.folderId, fileId: p.driveAnnId, fileName: nm.ann }); p.driveAnnName = nm.ann; } catch (e) { /* older script: keep going */ } }
       }
       say('Finishing…'); await API.post('saveSurvey', { survey: exportSurvey(), folderId: r.folderId });
       JOB.sync.dirty = false; JOB.sync.lastSyncedAt = nowIso(); await DB.put('jobs', JOB);
@@ -1029,16 +1069,6 @@ const App = {
       dialog({ title: 'Could not save', body: '<p>' + esc(e.message || e) + '</p><p class="hint">Your job is still safe on this device. Check your signal and the Apps Script URL / shared key (⋯ menu → Settings), then try again.</p>' });
       return false;
     }
-  },
-  async toEstimator() {
-    if (!JOB.items.length) { toast('Add at least one scope item first'); return; }
-    if (!Settings.estimator) {
-      const u = await askText('Estimator web address', 'https://yourname.github.io/estimator/', '');
-      if (!u) return; Settings.estimator = u;
-    }
-    const ok = await this.sync(); if (!ok) return;
-    const base = Settings.estimator, link = base + (base.includes('?') ? '&' : '?') + 'survey=' + encodeURIComponent(JOB.sync.folderId);
-    dialog({ title: 'Saved. Ready to price it.', body: '<p>The survey is on Drive. The estimator will load it automatically.</p>', buttons: [{ label: 'Not now', value: null, cls: 'gray' }, { label: '➜ Open Estimator', action: () => { window.open(link, '_blank'); return true; }, cls: 'orange' }] });
   },
   async openFromDrive() {
     if (!API.ready()) { toast('Set the Apps Script URL first'); this.settings(); return; }
@@ -1097,22 +1127,21 @@ const App = {
     const rrows = Object.keys(SERVICES).filter(k => k !== 'other').map(k => '<label>' + SERVICES[k].icon + ' ' + SERVICES[k].label + ' — ' + MEASURE_UNIT[SERVICES[k].measure] + ' per labor-hour</label><input data-r="' + k + '" type="number" inputmode="decimal" step="any" placeholder="blank = no suggestion" value="' + esc(rates[k] || '') + '">').join('');
     const body = '<label>Apps Script Web App URL</label><input id="sUrl" placeholder="https://script.google.com/macros/s/…/exec" value="' + esc(Settings.url) + '">'
       + '<label>Shared key (only if you set SHARED_KEY in the script)</label><input id="sKey" type="password" value="' + esc(Settings.key) + '">'
-      + '<label>Estimator web address</label><input id="sEst" placeholder="https://yourname.github.io/estimator/" value="' + esc(Settings.estimator) + '">'
       + '<label>Your name (shown as “surveyed by”)</label><input id="sCrew" value="' + esc(Settings.crew) + '">'
       + '<button class="btn gray" id="sLink" style="width:100%;margin-top:14px">📲 Copy setup link for crew phones</button><p class="hint">Makes a link that fills in the Drive URL and estimator address on another phone. Anyone with the link can use your Drive URL, so only text it to your crew.</p>'
       + '<details style="margin-top:14px"><summary style="font-weight:700;padding:8px 0">Production rates (optional)</summary><p class="hint">Used to suggest labor hours. Leave blank until you have real numbers from past jobs.</p>' + rrows + '</details>';
     const r = await dialog({
       title: 'Settings', body, wide: true,
       onOpen: ov => { $('#sLink', ov).onclick = async () => {
-        const u = $('#sUrl', ov).value.trim(), e = $('#sEst', ov).value.trim(), k = $('#sKey', ov).value.trim();
+        const u = $('#sUrl', ov).value.trim(), k = $('#sKey', ov).value.trim();
         if (!u) { toast('Enter the Apps Script URL first'); return; }
-        const link = this.setupLink({ u, e, k: k || undefined });
+        const link = this.setupLink({ u, k: k || undefined });
         try { await navigator.clipboard.writeText(link); toast('✓ Setup link copied. Paste it into a text message.', 4200); }
         catch (err) { dialog({ title: 'Setup link', body: '<p class="hint">Copy this link and text it to your crew:</p><textarea readonly style="font-size:12px;word-break:break-all" onfocus="this.select()">' + esc(link) + '</textarea>', buttons: [{ label: 'Close', value: true }] }); }
       }; },
       buttons: [{ label: 'Cancel', value: null, cls: 'gray' },
         { label: 'Test', cls: 'sec', action: ov => { Settings.url = $('#sUrl', ov).value; Settings.key = $('#sKey', ov).value; toast('Testing…', 8000); API.get('listSurveys').then(x => toast('✓ Connected — ' + x.surveys.length + ' survey(s) on Drive', 4000)).catch(e => toast('✗ ' + e.message, 5000)); return undefined; } },
-        { label: 'Save', action: ov => { const rt = {}; $$('[data-r]', ov).forEach(i => { if (parseFloat(i.value) > 0) rt[i.dataset.r] = parseFloat(i.value); }); Settings.url = $('#sUrl', ov).value; Settings.key = $('#sKey', ov).value; Settings.estimator = $('#sEst', ov).value; Settings.crew = $('#sCrew', ov).value; Settings.rates = rt; return true; } }]
+        { label: 'Save', action: ov => { const rt = {}; $$('[data-r]', ov).forEach(i => { if (parseFloat(i.value) > 0) rt[i.dataset.r] = parseFloat(i.value); }); Settings.url = $('#sUrl', ov).value; Settings.key = $('#sKey', ov).value; Settings.crew = $('#sCrew', ov).value; Settings.rates = rt; return true; } }]
     });
     if (r) toast('Settings saved');
   }
