@@ -110,10 +110,19 @@ h2.sec{font-size:13px;letter-spacing:1px;text-transform:uppercase;color:var(--g1
   .no-print,.hdr,.bar{display:none!important}
   .pad{padding:0}
 }
+#frameBar{display:flex;gap:10px;align-items:center;background:#fff3e0;border-bottom:2px solid var(--warn);padding:8px 12px;font-size:13px;line-height:1.3}
+#frameBar[hidden]{display:none!important}
+#frameBar .fbtx{flex:1}
+#frameBar a.btn{display:inline-flex;align-items:center;min-height:40px;padding:0 12px;text-decoration:none;font-size:13px;white-space:nowrap}
 </style>
 </head>
 <body>
 <div id="toast"></div>
+<div id="frameBar" class="no-print" hidden>
+  <div class="fbtx"><b>Viewing inside another page.</b> Open it full screen for best results. Jobs saved in this frame stay in this frame, so tap <b>Save to Drive</b> when you finish each job.</div>
+  <a id="frameOpen" class="btn orange" target="_blank" rel="noopener">Open full screen ↗</a>
+  <button id="frameX" aria-label="Dismiss" style="background:none;color:#7f8c8d;min-height:36px;padding:0 8px;font-size:18px">✕</button>
+</div>
 
 <!-- HOME -->
 <div id="screenHome" class="screen">
@@ -282,10 +291,16 @@ function cuYds(it) { return (it.service && SERVICES[it.service].depth != null &&
 const roundUpTenth = v => Math.ceil(v * 10 - 1e-9) / 10;
 
 /* ---------- Settings ---------- */
+// Built-in defaults. A value typed in ⚙ Settings (or loaded from a setup link) overrides these.
+// NOTE: this file is public if your GitHub repo is public. Anyone can read a URL placed here.
+const DEFAULTS = {
+  url: '',   // Apps Script Web App URL. Leave '' to use the setup link instead (recommended while the repo is public).
+  estimator: 'https://willie2471.github.io/estimator/'
+};
 const Settings = {
-  get url() { return ls.get('ws_apps_script_url', ''); }, set url(v) { ls.set('ws_apps_script_url', v.trim()); },
+  get url() { return ls.get('ws_apps_script_url', '') || DEFAULTS.url; }, set url(v) { ls.set('ws_apps_script_url', v.trim()); },
   get key() { return ls.get('ws_shared_key', ''); }, set key(v) { ls.set('ws_shared_key', v.trim()); },
-  get estimator() { return ls.get('ws_estimator_url', ''); }, set estimator(v) { ls.set('ws_estimator_url', v.trim()); },
+  get estimator() { return ls.get('ws_estimator_url', '') || DEFAULTS.estimator; }, set estimator(v) { ls.set('ws_estimator_url', v.trim()); },
   get crew() { return ls.get('ws_crew_name', ''); }, set crew(v) { ls.set('ws_crew_name', v.trim()); },
   get rates() { try { return JSON.parse(ls.get('ws_rates', '{}')) || {}; } catch (e) { return {}; } },
   set rates(v) { ls.set('ws_rates', JSON.stringify(v)); }
@@ -797,6 +812,13 @@ const App = {
     $('#btnInstall').onclick = async () => { if (deferred) { deferred.prompt(); deferred = null; $('#btnInstall').hidden = true; } };
     window.addEventListener('keydown', e => { if (!$('#screenEditor').hidden && (e.ctrlKey || e.metaKey) && e.key === 'z') { e.preventDefault(); Ed.undo(); } });
     if ('serviceWorker' in navigator && /^https?:/.test(location.protocol)) navigator.serviceWorker.register('sw.js').catch(() => {});
+    let framed = false; try { framed = window.self !== window.top; } catch (e) { framed = true; }
+    if (framed && !sessionStorage.getItem('ws_frame_x')) {
+      $('#frameBar').hidden = false; $('#frameOpen').href = location.origin + location.pathname;
+      $('#frameX').onclick = () => { $('#frameBar').hidden = true; try { sessionStorage.setItem('ws_frame_x', '1'); } catch (e) {} };
+      $('#btnInstall').remove();
+    }
+    try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (e) {}
     await this.renderHome(); this.showScreen('home');
     await this.checkSetupLink();
     if (!Settings.url) setTimeout(() => toast('Tap ⚙ to set your Apps Script URL before saving to Drive', 4200), 800);
