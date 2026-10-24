@@ -798,6 +798,7 @@ const App = {
     window.addEventListener('keydown', e => { if (!$('#screenEditor').hidden && (e.ctrlKey || e.metaKey) && e.key === 'z') { e.preventDefault(); Ed.undo(); } });
     if ('serviceWorker' in navigator && /^https?:/.test(location.protocol)) navigator.serviceWorker.register('sw.js').catch(() => {});
     await this.renderHome(); this.showScreen('home');
+    await this.checkSetupLink();
     if (!Settings.url) setTimeout(() => toast('Tap ⚙ to set your Apps Script URL before saving to Drive', 4200), 800);
   },
   showScreen(n) {
@@ -1045,6 +1046,29 @@ const App = {
       await DB.put('jobs', s); ov && ov.remove(); this.enterJob(); toast('✓ Survey loaded');
     } catch (e) { console.error(e); ov && ov.remove(); JOB = null; dialog({ title: 'Could not open', body: '<p>' + esc(e.message || e) + '</p>' }); }
   },
+  /* ---- setup link (fills Settings on a new phone) ---- */
+  setupLink(cfg) {
+    const j = JSON.stringify(cfg), b = btoa(unescape(encodeURIComponent(j))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    return location.origin + location.pathname + '?setup=' + b;
+  },
+  async checkSetupLink() {
+    let raw = null;
+    try { raw = new URLSearchParams(location.search).get('setup'); } catch (e) {}
+    if (!raw) return;
+    try { history.replaceState(null, '', location.pathname); } catch (e) {}
+    let cfg;
+    try { const b = raw.replace(/-/g, '+').replace(/_/g, '/'); cfg = JSON.parse(decodeURIComponent(escape(atob(b + '==='.slice((b.length + 3) % 4))))); } catch (e) { toast('That setup link is not valid'); return; }
+    if (!cfg || (!cfg.u && !cfg.e)) { toast('That setup link is empty'); return; }
+    let host = ''; try { host = new URL(cfg.u).host; } catch (e) {}
+    const ok = await dialog({
+      title: 'Load setup from link?',
+      body: '<p>This will set up this phone to save surveys to:</p><p style="word-break:break-all;font-weight:700;margin:8px 0">' + esc(host || '(no Drive URL)') + '</p>' + (cfg.e ? '<p class="hint">Estimator: ' + esc(cfg.e) + '</p>' : '') + (cfg.k ? '<p class="hint">Includes the shared key.</p>' : '') + '<p class="hint" style="margin-top:8px">Only continue if this link came from WS Lawn Care.</p>',
+      buttons: [{ label: 'Cancel', value: false, cls: 'gray' }, { label: 'Use these settings', value: true }]
+    });
+    if (!ok) return;
+    if (cfg.u) Settings.url = cfg.u; if (cfg.e) Settings.estimator = cfg.e; if (cfg.k) Settings.key = cfg.k;
+    toast('✓ Settings loaded. Add your name in ⚙ Settings.', 4200);
+  },
   /* ---- settings ---- */
   async settings() {
     const rates = Settings.rates;
@@ -1053,9 +1077,17 @@ const App = {
       + '<label>Shared key (only if you set SHARED_KEY in the script)</label><input id="sKey" type="password" value="' + esc(Settings.key) + '">'
       + '<label>Estimator web address</label><input id="sEst" placeholder="https://yourname.github.io/estimator/" value="' + esc(Settings.estimator) + '">'
       + '<label>Your name (shown as “surveyed by”)</label><input id="sCrew" value="' + esc(Settings.crew) + '">'
+      + '<button class="btn gray" id="sLink" style="width:100%;margin-top:14px">📲 Copy setup link for crew phones</button><p class="hint">Makes a link that fills in the Drive URL and estimator address on another phone. Anyone with the link can use your Drive URL, so only text it to your crew.</p>'
       + '<details style="margin-top:14px"><summary style="font-weight:700;padding:8px 0">Production rates (optional)</summary><p class="hint">Used to suggest labor hours. Leave blank until you have real numbers from past jobs.</p>' + rrows + '</details>';
     const r = await dialog({
       title: 'Settings', body, wide: true,
+      onOpen: ov => { $('#sLink', ov).onclick = async () => {
+        const u = $('#sUrl', ov).value.trim(), e = $('#sEst', ov).value.trim(), k = $('#sKey', ov).value.trim();
+        if (!u) { toast('Enter the Apps Script URL first'); return; }
+        const link = this.setupLink({ u, e, k: k || undefined });
+        try { await navigator.clipboard.writeText(link); toast('✓ Setup link copied. Paste it into a text message.', 4200); }
+        catch (err) { dialog({ title: 'Setup link', body: '<p class="hint">Copy this link and text it to your crew:</p><textarea readonly style="font-size:12px;word-break:break-all" onfocus="this.select()">' + esc(link) + '</textarea>', buttons: [{ label: 'Close', value: true }] }); }
+      }; },
       buttons: [{ label: 'Cancel', value: null, cls: 'gray' },
         { label: 'Test', cls: 'sec', action: ov => { Settings.url = $('#sUrl', ov).value; Settings.key = $('#sKey', ov).value; toast('Testing…', 8000); API.get('listSurveys').then(x => toast('✓ Connected — ' + x.surveys.length + ' survey(s) on Drive', 4000)).catch(e => toast('✗ ' + e.message, 5000)); return undefined; } },
         { label: 'Save', action: ov => { const rt = {}; $$('[data-r]', ov).forEach(i => { if (parseFloat(i.value) > 0) rt[i.dataset.r] = parseFloat(i.value); }); Settings.url = $('#sUrl', ov).value; Settings.key = $('#sKey', ov).value; Settings.estimator = $('#sEst', ov).value; Settings.crew = $('#sCrew', ov).value; Settings.rates = rt; return true; } }]
