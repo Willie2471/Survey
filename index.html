@@ -532,7 +532,7 @@ function loadWatermark() {
 async function drawWatermark(ctx, w, h) {
   const im = await loadWatermark(); if (!im) return;
   const sz = Math.round(Math.min(w, h) * 0.16), m = Math.round(Math.min(w, h) * 0.025);
-  ctx.save(); ctx.globalAlpha = 0.6; ctx.drawImage(im, w - sz - m, h - sz - m, sz, sz); ctx.restore();
+  ctx.save(); ctx.globalAlpha = 1; ctx.drawImage(im, w - sz - m, h - sz - m, sz, sz); ctx.restore();
 }
 async function renderAnnotated(photo, srcBlob) {
   const bmp = await createImageBitmap(srcBlob);
