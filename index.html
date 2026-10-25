@@ -480,7 +480,7 @@ function shapeColor(s) {
 }
 function drawShapes(ctx, photo, tf, u, o) {
   o = o || {};
-  const all = (photo.shapes || []).concat(o.draft ? [o.draft] : []);
+  const all = (photo.shapes || []).filter(s => s.type !== 'cal').concat(o.draft ? [o.draft] : []); // reference line is only shown while you are drawing it
   all.forEach(s => {
     const col = shapeColor(s), pts = s.pts.map(tf), sel = o.selId && s.id === o.selId;
     ctx.save(); ctx.lineCap = 'round'; ctx.lineJoin = 'round';
@@ -532,7 +532,7 @@ function loadWatermark() {
 async function drawWatermark(ctx, w, h) {
   const im = await loadWatermark(); if (!im) return;
   const sz = Math.round(Math.min(w, h) * 0.16), m = Math.round(Math.min(w, h) * 0.025);
-  ctx.save(); ctx.globalAlpha = 1; ctx.drawImage(im, w - sz - m, h - sz - m, sz, sz); ctx.restore();
+  ctx.save(); ctx.globalAlpha = 0.6; ctx.drawImage(im, w - sz - m, h - sz - m, sz, sz); ctx.restore();
 }
 async function renderAnnotated(photo, srcBlob) {
   const bmp = await createImageBitmap(srcBlob);
@@ -546,9 +546,9 @@ async function renderAnnotated(photo, srcBlob) {
 /* ---------- the editor ---------- */
 const TOOLS = [
   { id: 'select', ic: '👆', t: 'Select', hint: 'Tap a shape to select it. Drag a white dot to fix a point. Drag empty space to move; pinch or scroll to zoom.' },
-  { id: 'cal', ic: '📐', t: 'Calibrate', hint: 'Tap the two ends of something you know the length of (tape, 4-ft level, a paver). Then enter its real length.' },
-  { id: 'line', ic: '📏', t: 'Length', hint: 'Tap along a hedge, edge or fence line. Tap ✔ Finish when done.' },
-  { id: 'area', ic: '⬠', t: 'Area', hint: 'Tap each corner of the bed or lawn. Tap the first dot or ✔ Close shape to finish.' },
+  { id: 'cal', ic: '📐', t: 'Calibrate', hint: 'Optional. Tap the two ends of something you know the length of (tape, 4-ft level, a paver) and enter its real length. Skip this if you will type measurements in yourself.' },
+  { id: 'line', ic: '📏', t: 'Length', hint: 'Tap along a hedge, edge or fence line. Tap ✔ Finish when done. Without calibration, you type the length in.' },
+  { id: 'area', ic: '⬠', t: 'Area', hint: 'Tap each corner of the bed or lawn. Tap the first dot or ✔ Close shape to finish. Without calibration, you type the size in.' },
   { id: 'count', ic: '🔢', t: 'Count', hint: 'Tap each plant, tree or item. Tap ✔ Finish when done.' },
   { id: 'arrow', ic: '➚', t: 'Arrow', hint: 'Tap the tail, then the point.' },
   { id: 'text', ic: '🅣', t: 'Text', hint: 'Tap where the note should go.' },
@@ -582,15 +582,27 @@ const Ed = {
     const rec = await DB.get('photos', photoId); if (!rec || !rec.orig) { toast('Photo file missing on this device'); return; }
     this.photo = photo; this.srcBlob = rec.orig; this.img = await createImageBitmap(rec.orig);
     this.onClose = onClose; this.draft = null; this.sel = null; this.hist = []; this.dirty = false; this.tool = 'select';
-    photo.shapes = photo.shapes || [];
+    photo.shapes = (photo.shapes || []).filter(s => s.type !== 'cal'); // drop old reference lines from earlier photos
     $('#screenEditor').hidden = false; $('#edTitle').textContent = photo.caption || 'Photo';
-    this.resize(); this.fit(); this.setTool(photo.calibration || !photo.shapes.length ? (photo.calibration ? 'select' : 'cal') : 'select'); this.draw();
+    this.resize(); this.fit(); this.setTool('select'); this.draw();
     if (!ls.get('ws_flat_tip')) { ls.set('ws_flat_tip', '1'); setTimeout(() => toast('Tip: only measure things on the same flat surface as your reference. Photo measurements are estimates.', 5200), 600); }
   },
   async close() {
     if (this.draft && this.draft.pts.length) { const ok = await confirmDlg('Discard the shape you are drawing?', 'Discard', 'bad'); if (!ok) return; }
     this.draft = null;
     const p = this.photo;
+    // Ask for a caption (shown to the customer) and internal notes (for the estimator only).
+    // Shown after edits, or when the photo has neither yet. Skip keeps whatever is already there.
+    if (this.dirty || !(p.caption || p.notes)) {
+      const r = await dialog({
+        title: 'Photo details',
+        body: '<label style="font-weight:600;font-size:13px">Caption <span style="font-weight:400;color:#7f8c8d">(shows on the customer report)</span></label><input id="pdCap" autocomplete="off" placeholder="e.g. Front bed, west side">'
+          + '<label style="font-weight:600;font-size:13px;margin-top:10px;display:block">Internal notes for the estimator <span style="font-weight:400;color:#7f8c8d">(not shown to the customer)</span></label><textarea id="pdNotes" placeholder="e.g. Sod goes here, measured 12 x 30. Irrigation head near the fence."></textarea>',
+        onOpen: ov => { $('#pdCap', ov).value = p.caption || ''; $('#pdNotes', ov).value = p.notes || ''; setTimeout(() => $('#pdCap', ov).focus(), 50); },
+        buttons: [{ label: 'Skip', value: null, cls: 'gray' }, { label: 'Save', action: ov => ({ cap: $('#pdCap', ov).value.trim(), notes: $('#pdNotes', ov).value.trim() }) }]
+      });
+      if (r && (r.cap !== (p.caption || '') || r.notes !== (p.notes || ''))) { p.caption = r.cap; p.notes = r.notes; this.dirty = true; }
+    }
     try {
       const ann = await renderAnnotated(p, this.srcBlob);
       const rec = await DB.get('photos', p.id); rec.ann = ann; await DB.put('photos', rec); photoUrl(p.id, 'ann', ann);
@@ -615,7 +627,6 @@ const Ed = {
   },
   setColor(c) { this.color = c; $$('#edColors i').forEach(i => i.classList.toggle('on', i.dataset.c === c)); if (this.sel) { const s = this.shapeById(this.sel); if (s && !s.itemId && ['arrow', 'text', 'free'].includes(s.type)) { this.pushHist(); s.color = c; this.dirty = true; this.draw(); } } },
   setTool(id) {
-    if ((id === 'line' || id === 'area') && !this.photo.calibration) { toast('Calibrate first: mark something with a known length.', 3200); id = 'cal'; }
     if (this.draft && this.draft.pts.length && this.draft.type !== id) this.draft = null;
     this.tool = id; if (id !== 'select') this.sel = null;
     $$('#edTools button').forEach(b => b.classList.toggle('on', b.dataset.tool === id));
@@ -690,7 +701,7 @@ const Ed = {
       if (s) {
         const k = shapeMeasureKind(s);
         if (s.itemId) h += '<button class="btn" data-a="edit">✏️ Edit item</button>';
-        else if (k && (k === 'count' || this.photo.calibration)) h += '<button class="btn" data-a="item">＋ Save as item</button>';
+        else if (k) h += '<button class="btn" data-a="item">＋ Save as item</button>';
         if (s.type === 'text') h += '<button class="btn gray" data-a="edittext">Edit text</button>';
         h += '<button class="btn bad" data-a="del">🗑 Delete</button>';
       }
@@ -712,17 +723,17 @@ const Ed = {
     }
   },
   async finishDraft() {
-    const d = this.draft; if (!d) return; this.draft = null; d.draft = false;
+    const d = this.draft; if (!d) return; if (d.type !== 'cal') this.draft = null; d.draft = false;
     if (d.type === 'cal') {
-      const px = dist(d.pts[0], d.pts[1]);
+      const px = dist(d.pts[0], d.pts[1]); d.draft = true; this.draw(); // line stays visible while you type its length
       const txt = await askText('How long is that line in real life?', 'e.g. 4 ft, 36 in, 3\'6", 1.2 m', '');
+      this.draft = null; d.draft = false;
       if (!txt) { this.draw(); return; }
       const ft = parseLenFt(txt); if (!(ft > 0)) { toast('Could not read that length. Try “4 ft” or “36 in”.'); this.draw(); return; }
       this.pushHist();
-      this.photo.shapes = this.photo.shapes.filter(s => s.type !== 'cal'); this.photo.shapes.push(d);
-      this.photo.calibration = { pxPerFt: px / ft, realFt: ft };
+            this.photo.calibration = { pxPerFt: px / ft, realFt: ft };
       this.photo.shapes.forEach(s => refreshItemFromShape(this.photo, s));
-      this.dirty = true; App.itemsChanged(); this.setTool('area'); toast('Calibrated. Now outline the area or measure a length.', 3200); return;
+      this.dirty = true; App.itemsChanged(); this.setTool('select'); toast('Calibrated.', 2200); return;
     }
     this.pushHist(); this.photo.shapes.push(d); this.dirty = true; this.sel = d.id; this.draw();
     this.openItemFor(d);
@@ -752,11 +763,11 @@ const Ed = {
   },
   async menu() {
     const choice = await dialog({
-      title: 'Photo options', body: '<div style="display:grid;gap:10px"><button class="btn gray" data-v="cap">✏️ Edit caption</button><button class="btn gray" data-v="cal">📐 Recalibrate</button><button class="btn gray" data-v="clr">🧹 Clear all annotations</button><button class="btn bad" data-v="del">🗑 Delete this photo</button></div>',
+      title: 'Photo options', body: '<div style="display:grid;gap:10px"><button class="btn gray" data-v="cap">✏️ Edit caption &amp; notes</button><button class="btn gray" data-v="cal">📐 Recalibrate</button><button class="btn gray" data-v="clr">🧹 Clear all annotations</button><button class="btn bad" data-v="del">🗑 Delete this photo</button></div>',
       buttons: [{ label: 'Close', value: null, cls: 'gray' }],
       onOpen: (ov, close) => $$('[data-v]', ov).forEach(b => b.onclick = () => close(b.dataset.v))
     });
-    if (choice === 'cap') { const t = await askText('Photo caption', 'e.g. Front bed, west side', this.photo.caption || ''); if (t != null) { this.photo.caption = t; $('#edTitle').textContent = t || 'Photo'; this.dirty = true; } }
+    if (choice === 'cap') { const t = await askText('Photo caption', 'e.g. Front bed, west side', this.photo.caption || ''); if (t != null) { this.photo.caption = t; $('#edTitle').textContent = t || 'Photo'; this.dirty = true; } const n = await askText('Internal notes for the estimator (optional)', 'Not shown to the customer', this.photo.notes || '', true); if (n != null) { this.photo.notes = n; this.dirty = true; } }
     else if (choice === 'cal') { this.setTool('cal'); }
     else if (choice === 'clr') { if (await confirmDlg('Remove every shape on this photo? Linked scope items will stay but lose their outline.', 'Clear', 'bad')) { this.pushHist(); this.photo.shapes.forEach(s => { }); this.photo.shapes = []; this.photo.calibration = null; this.dirty = true; this.sel = null; this.draw(); } }
     else if (choice === 'del') { if (await confirmDlg('Delete this photo and its annotations?', 'Delete', 'bad')) { const id = this.photo.id; this.photo.shapes = []; this.draft = null; this.photo = null; this.img = null; $('#screenEditor').hidden = true; await App.deletePhoto(id); } }
@@ -883,7 +894,7 @@ const App = {
     if (!JOB.photos.length) st.innerHTML = '<div class="empty" style="width:100%">No photos yet.</div>';
     else {
       const parts = [];
-      for (const p of JOB.photos) { const u = await ensurePhotoUrl(p.id, 'ann'); parts.push('<div class="ph" data-id="' + p.id + '"><div class="im" style="background-image:url(' + u + ')"></div><span>' + esc(p.caption || 'Photo') + '</span></div>'); }
+      for (const p of JOB.photos) { const u = await ensurePhotoUrl(p.id, 'ann'); parts.push('<div class="ph" data-id="' + p.id + '"><div class="im" style="background-image:url(' + u + ')"></div><span>' + esc(p.caption || 'Photo') + (p.notes ? ' 📝' : '') + '</span></div>'); }
       st.innerHTML = parts.join('');
       $$('.ph', st).forEach(c => c.onclick = () => this.editPhoto(c.dataset.id));
     }
@@ -939,7 +950,7 @@ const App = {
       const compatible = k => !kind || SERVICES[k].measure === kind || SERVICES[k].measure === 'any';
       if (service && (!SERVICES[service] || !compatible(service))) service = '';
       $('#itTitle').textContent = it ? 'Edit scope item' : 'New scope item';
-      $('#itFrom').textContent = shape ? (calc != null ? 'Measured from photo: ' + (kind === 'area' ? fmt(calc, 0) + ' sq ft' : kind === 'length' ? fmt(calc, 1) + ' ft' : fmt(calc, 0) + ' counted') + ' (≈ estimate — confirm with tape or wheel if the job is big).' : '') : 'Typed-in item (no photo measurement).';
+      $('#itFrom').textContent = shape ? (calc == null && kind !== 'count' ? 'Highlighted on the photo. Not calibrated, so type in the measurement you took.' : calc != null ? 'Measured from photo: ' + (kind === 'area' ? fmt(calc, 0) + ' sq ft' : kind === 'length' ? fmt(calc, 1) + ' ft' : fmt(calc, 0) + ' counted') + ' (≈ estimate — confirm with tape or wheel if the job is big).' : '') : 'Typed-in item (no photo measurement).';
       const chips = $('#itChips'); chips.innerHTML = '';
       Object.keys(SERVICES).filter(compatible).forEach(k => { const b = document.createElement('button'); b.className = 'chip'; b.dataset.k = k; b.innerHTML = '<span class="ic">' + SERVICES[k].icon + '</span>' + SERVICES[k].label; b.onclick = () => { service = k; ls.set('ws_last_service', k); refresh(true); }; chips.appendChild(b); });
       $('#itName').value = it ? it.name : ''; $('#itNotes').value = it ? (it.notes || '') : ''; $('#itVerified').checked = it ? !!it.verified : false;
@@ -979,7 +990,7 @@ const App = {
         $('#itMeasureWrap').hidden = !(s && s.measure === 'any' && !shape);
         const m = !s ? (kind || 'area') : s.measure === 'any' ? (shape ? kind : $('#itMeasure').value) : s.measure;
         $('#itDimWrap').hidden = !(m === 'area' && !shape);
-        $('#itUnit').textContent = MEASURE_UNIT[m]; $('#itValueLbl').textContent = MEASURE_LABEL[m] + (shape ? ' (from photo — editable)' : '');
+        $('#itUnit').textContent = MEASURE_UNIT[m]; $('#itValueLbl').textContent = MEASURE_LABEL[m] + (shape && calc != null ? ' (from photo — editable)' : '');
         $('#itDepthWrap').hidden = !(s && s.depth != null);
         if (s && s.depth != null && userPicked && !$('#itDepth').value) $('#itDepth').value = s.depth;
         if (s && s.depth != null && !$('#itDepth').value) $('#itDepth').value = s.depth;
