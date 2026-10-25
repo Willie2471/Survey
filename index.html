@@ -450,7 +450,7 @@ const roundForMeasure = (k, v) => k === 'length' ? Math.round(v * 10) / 10 : Mat
 function refreshItemFromShape(photo, s) {
   if (!s.itemId || !JOB) return;
   const it = JOB.items.find(i => i.id === s.itemId);
-  if (!it || it.override || it.verified) return;
+  if (!it || it.override || it.verified || shapeMeasureKind(s) === 'area') return; // areas come from length × width entries
   const v = shapeValue(photo, s);
   if (v != null) it.value = roundForMeasure(shapeMeasureKind(s), v);
 }
@@ -944,13 +944,14 @@ const App = {
     return new Promise(resolve => {
       const sh = $('#sheetItem'); const it = o.item || null, shape = o.shape || null, photo = o.photo || null;
       const kind = shape ? shapeMeasureKind(shape) : (it && it.service !== 'other' ? SERVICES[it.service].measure : (it ? itemMeasure(it) : null));
-      const calc = shape ? shapeValue(photo, shape) : null;
+      const photoEst = shape ? shapeValue(photo, shape) : null; // calibrated estimate from the outline
+      const calc = kind === 'area' ? null : photoEst;   // areas are entered as length × width sections instead
       const calcRounded = calc != null ? roundForMeasure(kind, calc) : null;
       let service = it ? it.service : ls.get('ws_last_service', '');
       const compatible = k => !kind || SERVICES[k].measure === kind || SERVICES[k].measure === 'any';
       if (service && (!SERVICES[service] || !compatible(service))) service = '';
       $('#itTitle').textContent = it ? 'Edit scope item' : 'New scope item';
-      $('#itFrom').textContent = shape ? (calc == null && kind !== 'count' ? 'Highlighted on the photo. Not calibrated, so type in the measurement you took.' : calc != null ? 'Measured from photo: ' + (kind === 'area' ? fmt(calc, 0) + ' sq ft' : kind === 'length' ? fmt(calc, 1) + ' ft' : fmt(calc, 0) + ' counted') + ' (≈ estimate — confirm with tape or wheel if the job is big).' : '') : 'Typed-in item (no photo measurement).';
+      $('#itFrom').textContent = shape ? (kind === 'area' ? 'Outlined on the photo. Enter length × width for each section; the sections add up to the total.' + (photoEst != null ? ' (Photo estimate ≈ ' + fmt(photoEst, 0) + ' sq ft, for reference only.)' : '') : calc == null && kind !== 'count' ? 'Highlighted on the photo. Not calibrated, so type in the measurement you took.' : calc != null ? 'Measured from photo: ' + (kind === 'area' ? fmt(calc, 0) + ' sq ft' : kind === 'length' ? fmt(calc, 1) + ' ft' : fmt(calc, 0) + ' counted') + ' (≈ estimate — confirm with tape or wheel if the job is big).' : '') : 'Typed-in item (no photo measurement).';
       const chips = $('#itChips'); chips.innerHTML = '';
       Object.keys(SERVICES).filter(compatible).forEach(k => { const b = document.createElement('button'); b.className = 'chip'; b.dataset.k = k; b.innerHTML = '<span class="ic">' + SERVICES[k].icon + '</span>' + SERVICES[k].label; b.onclick = () => { service = k; ls.set('ws_last_service', k); refresh(true); }; chips.appendChild(b); });
       $('#itName').value = it ? it.name : ''; $('#itNotes').value = it ? (it.notes || '') : ''; $('#itVerified').checked = it ? !!it.verified : false;
@@ -989,7 +990,7 @@ const App = {
         if (mats) { const sel = $('#itMat'); const keep = userPicked ? '' : curMat; sel.innerHTML = '<option value="">— decide at estimate —</option>' + mats.map(m => '<option>' + esc(m) + '</option>').join(''); sel.value = keep && mats.includes(keep) ? keep : ''; if (userPicked) curMat = ''; }
         $('#itMeasureWrap').hidden = !(s && s.measure === 'any' && !shape);
         const m = !s ? (kind || 'area') : s.measure === 'any' ? (shape ? kind : $('#itMeasure').value) : s.measure;
-        $('#itDimWrap').hidden = !(m === 'area' && !shape);
+        $('#itDimWrap').hidden = m !== 'area';
         $('#itUnit').textContent = MEASURE_UNIT[m]; $('#itValueLbl').textContent = MEASURE_LABEL[m] + (shape && calc != null ? ' (from photo — editable)' : '');
         $('#itDepthWrap').hidden = !(s && s.depth != null);
         if (s && s.depth != null && userPicked && !$('#itDepth').value) $('#itDepth').value = s.depth;
@@ -1017,7 +1018,7 @@ const App = {
           material: s.mats ? $('#itMat').value : '', depthIn: s.depth != null ? (parseFloat($('#itDepth').value) || s.depth) : 0, heightFt: s.height ? (parseFloat($('#itHeight').value) || 0) : 0,
           notes: $('#itNotes').value.trim(), verified: $('#itVerified').checked, method: shape ? 'photo' : (item.method || 'manual'),
           photoId: photo ? photo.id : (item.photoId || ''), shapeId: shape ? shape.id : (item.shapeId || ''),
-          dims: (m === 'area' && !shape && Math.abs(dimTotal() - val) < 0.6) ? goodDims().map(d => [parseFloat(d[0]), parseFloat(d[1])]) : []
+          dims: (m === 'area' && Math.abs(dimTotal() - val) < 0.6) ? goodDims().map(d => [parseFloat(d[0]), parseFloat(d[1])]) : []
         });
         item.override = !!(calcRounded != null && Math.abs(item.value - calcRounded) > 0.01);
         if (!it) JOB.items.push(item);
