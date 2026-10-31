@@ -118,6 +118,14 @@ h2.sec{font-size:13px;letter-spacing:1px;text-transform:uppercase;color:var(--g1
 .dimrow span{font-weight:700;color:var(--mut)}
 .dimrow input{margin:0}
 .dimrow button{min-height:48px;padding:0}
+#screenEditor{background:#000}
+#edWrap{position:absolute;inset:0;flex:none}
+#edTop{position:absolute;left:0;right:0;top:0;z-index:5;background:rgba(20,20,20,.55)}
+#edBottom{position:absolute;left:0;right:0;bottom:0;z-index:5;background:rgba(20,20,20,.55)}
+#edBottom #edColors,#edBottom #edTools{background:transparent}
+#edHint{top:64px;transition:opacity .5s}
+#edZoom{top:120px;z-index:4}
+#edAct{bottom:150px}
 </style>
 </head>
 <body>
@@ -200,8 +208,10 @@ h2.sec{font-size:13px;letter-spacing:1px;text-transform:uppercase;color:var(--g1
     <div id="edZoom"><button id="zIn">＋</button><button id="zOut">－</button><button id="zFit">⤢</button></div>
     <div id="edAct"></div>
   </div>
-  <div id="edColors"></div>
-  <div id="edTools"></div>
+  <div id="edBottom">
+    <div id="edColors"></div>
+    <div id="edTools"></div>
+  </div>
 </div>
 
 <!-- ITEM SHEET -->
@@ -671,7 +681,7 @@ const Ed = {
     if (this.draft && this.draft.pts.length && (this.draft.tool || this.draft.type) !== id) this.draft = null;
     this.tool = id; if (id !== 'select') this.sel = null;
     $$('#edTools button').forEach(b => b.classList.toggle('on', b.dataset.tool === id));
-    $('#edHint').textContent = TOOLS.find(t => t.id === id).hint;
+    { const h = $('#edHint'); h.textContent = TOOLS.find(t => t.id === id).hint; h.style.opacity = 1; clearTimeout(this.hintT); this.hintT = setTimeout(() => { h.style.opacity = 0; }, 6000); }
     $('#edColors').style.display = ['arrow', 'text', 'free', 'select'].includes(id) ? 'flex' : 'none';
     this.draw();
   },
@@ -693,6 +703,7 @@ const Ed = {
     if (this.tool === 'free') { this.freeDraft = true; this.draft = { id: uid(), type: 'free', pts: [ip], color: this.color, draft: true }; this.draw(); return; }
     if (this.tool === 'select') {
       const vh = this.vertexHit(p); if (vh) { this.pushHist(); this.drag = vh; }
+      else { const h = this.hitShape(p); if (h && h.type === 'text') { this.sel = h.id; this.pushHist(); const q = this.tf(h.pts[0]); this.drag = { id: h.id, text: true, ox: q[0] - p[0], oy: q[1] - p[1] }; this.draw(); } }
     }
   },
   startPinch() {
@@ -708,7 +719,7 @@ const Ed = {
     }
     if (Math.hypot(p[0] - q.sx, p[1] - q.sy) > 9) this.moved = true;
     if (this.freeDraft && this.draft) { this.draft.pts.push(this.inv(p[0], p[1])); this.draw(); return; }
-    if (this.drag) { const s = this.shapeById(this.drag.id); if (s) { s.pts[this.drag.i] = this.inv(p[0], p[1]); this.dirty = true; this.draw(); } return; }
+    if (this.drag) { const s = this.shapeById(this.drag.id); if (s) { if (this.drag.text) s.pts[0] = this.inv(p[0] + this.drag.ox, p[1] + this.drag.oy); else s.pts[this.drag.i] = this.inv(p[0], p[1]); this.dirty = true; this.draw(); } return; }
     if (this.moved && this.ptrs.size === 1 && this.tool !== 'select') { this.v.tx += dx; this.v.ty += dy; this.draw(); }
   },
   up(e) {
