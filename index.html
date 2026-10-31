@@ -290,6 +290,8 @@ const MEASURE_UNIT = { area: 'sq ft', length: 'lin ft', count: 'ea' };
 const MEASURE_LABEL = { area: 'Area', length: 'Length', count: 'Count' };
 const ANNOT_COLORS = ['#e74c3c', '#f1c40f', '#ffffff', '#3498db', '#111111'];
 
+const AUTO_NAMES = new Set(); Object.keys(SERVICES).forEach(k => { AUTO_NAMES.add(SERVICES[k].label); (SERVICES[k].mats || []).forEach(m => AUTO_NAMES.add(m)); });
+const isAutoName = it => !!it && (it.autoName || !it.name || AUTO_NAMES.has(it.name));
 function itemMeasure(it) { const s = SERVICES[it.service]; return s.measure === 'any' ? (it.measure || 'area') : s.measure; }
 function qtyText(it) {
   const m = itemMeasure(it), v = it.value || 0;
@@ -488,26 +490,106 @@ function shapeStyle(s) {
   if (it && it.service === 'sod' && s.type === 'area') return 'sod';
   return '';
 }
-let SOD_PAT = null;
-function sodPattern(ctx, u) {
-  // Dense, varied grass blades on a deep green base (tile is seamless; seeded so it looks the same every time)
-  const n = Math.max(48, Math.round(64 * u)), k = n + '|' + u;
-  if (SOD_PAT && SOD_PAT.k === k) return SOD_PAT.p;
-  const c = document.createElement('canvas'); c.width = c.height = n; const g = c.getContext('2d');
-  g.fillStyle = '#2c7a2e'; g.fillRect(0, 0, n, n);
-  let seed = 7; const rnd = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
-  const cols = ['#1f6326', '#2f8a34', '#3fa63f', '#56b94a', '#7ccd5a', '#246b2b', '#38993b'];
-  g.lineCap = 'round';
-  const blades = Math.round(n * n / (5 * u * u));
-  for (let i = 0; i < blades; i++) {
-    const x = rnd() * n, y = rnd() * n, len = (5 + rnd() * 8) * u, lean = (rnd() - .5) * 5 * u;
-    g.strokeStyle = cols[Math.floor(rnd() * cols.length)]; g.lineWidth = Math.max(1, (.9 + rnd() * .9) * u);
-    for (const ox of [-n, 0, n]) for (const oy of [-n, 0, n]) {
-      const X = x + ox, Y = y + oy; if (X < -len || X > n + len || Y < -len || Y > n + len) continue;
-      g.beginPath(); g.moveTo(X, Y); g.quadraticCurveTo(X + lean * .3, Y - len * .6, X + lean, Y - len); g.stroke();
-    }
+/* ---------- Material textures ----------
+   If a photo tile exists at textures/<name>.jpg it is used; otherwise a realistic texture is drawn procedurally.
+   Names: service-material slug, e.g. mulch-pine-bark.jpg, rock-red-lava-rock.jpg (see TEX_SLUG). A service-only file
+   (mulch.jpg, rock.jpg, dirt.jpg, sod.jpg) is used when no material-specific file exists. */
+const TEX_SLUG = (service, mat) => (service + (mat ? '-' + mat : '')).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+const TEX_SERVICES = ['mulch', 'rock', 'dirt', 'sod'];
+function texFiles() { const out = []; TEX_SERVICES.forEach(k => { out.push(TEX_SLUG(k)); (SERVICES[k].mats || []).forEach(m => out.push(TEX_SLUG(k, m))); }); return out; }
+const TEX_IMG = {}; let TEX_PAT = {}, TEX_READY = null;
+function loadTextures() {
+  if (!TEX_READY) TEX_READY = Promise.all(texFiles().map(sl => new Promise(res => { const im = new Image(); im.onload = () => { TEX_IMG[sl] = im; res(); }; im.onerror = () => res(); im.src = 'textures/' + sl + '.jpg'; }))).then(() => { TEX_PAT = {}; });
+  return TEX_READY;
+}
+const seededRng = seed => { let s = seed; return () => { s = (s * 16807) % 2147483647; return s / 2147483647; }; };
+function texSpec(service, mat) {
+  const m = (mat || '').toLowerCase();
+  if (service === 'mulch') {
+    if (/pine/.test(m)) return { kind: 'mulch', base: '#a9733f', cols: ['#8a5a2c', '#b07a45', '#c48d56', '#d3a06a', '#6e4724'] };
+    if (/red/.test(m)) return { kind: 'mulch', base: '#7a2f20', cols: ['#5f2217', '#8d3a28', '#a14630', '#6d291c', '#4a1a11'] };
+    if (/choc/.test(m)) return { kind: 'mulch', base: '#3a2417', cols: ['#2a1910', '#4a2f1f', '#5a3a26', '#33200f', '#1d110a'] };
+    return { kind: 'mulch', base: '#6b4a2f', cols: ['#4a3220', '#5d3f27', '#7a5636', '#8a6340', '#3b281a'] };
   }
-  SOD_PAT = { k, p: ctx.createPattern(c, 'repeat') }; return SOD_PAT.p;
+  if (service === 'rock') {
+    if (/granite/.test(m)) return { kind: 'rock', base: '#6f6f6d', cols: ['#7d7d7a', '#9a9a97', '#b3b1ac', '#5c5c5a', '#a39b8f'], size: 6, angular: true };
+    if (/pea/.test(m)) return { kind: 'rock', base: '#6a553c', cols: ['#a58a63', '#7a6244', '#c2a97f', '#8b7355', '#9b8567'], size: 3.4, angular: false };
+    if (/lava/.test(m)) return { kind: 'rock', base: '#2a1511', cols: ['#7a2e1c', '#a13c22', '#5a2418', '#c4552f', '#3a1f1a'], size: 7, angular: true };
+    if (/1-3/.test(m)) return { kind: 'rock', base: '#4b3a2a', cols: ['#8a6f52', '#a68a68', '#5c4733', '#b49a78', '#6e5841'], size: 11, angular: false, vary: true };
+    if (/river/.test(m)) return { kind: 'rock', base: '#4b3a2a', cols: ['#8a6f52', '#a68a68', '#5c4733', '#b49a78', '#6e5841'], size: 7, angular: false };
+    return { kind: 'rock', base: '#6f6f6d', cols: ['#7d7d7a', '#9a9a97', '#b3b1ac', '#5c5c5a', '#a39b8f'], size: 6, angular: true };
+  }
+  if (service === 'dirt') return { kind: 'dirt', base: '#4b3626', cols: ['#3a2a1d', '#5c4330', '#6b5038', '#2e2016', '#7a5e44'] };
+  // sod
+  const d = { kind: 'sod', base: '#2c7a2e', cols: ['#1f6326', '#2f8a34', '#3fa63f', '#56b94a', '#7ccd5a', '#246b2b', '#38993b'], w: 1, len: 1, dens: 1 };
+  if (/bahia/.test(m)) return Object.assign(d, { base: '#3a8a30', cols: ['#2f7a2a', '#4a9a38', '#62ad45', '#86c05a', '#3a8a30'], w: 1.1, len: 1.2, dens: .8 });
+  if (/pro vista/.test(m)) return Object.assign(d, { base: '#2a7330', cols: ['#1f6126', '#2d8236', '#3a9440', '#5bb04c', '#256b2d'] });
+  if (/citra/.test(m)) return Object.assign(d, { base: '#2a7a45', cols: ['#1f6a3c', '#2f8a52', '#3fa062', '#5db878', '#256e40'] });
+  if (/zoysia|bimini/.test(m)) return Object.assign(d, { base: '#2a7a30', cols: ['#1f6a28', '#2f8a38', '#44a244', '#5fb552', '#26702e'], w: .7, len: .75, dens: 1.6 });
+  if (/seville/.test(m)) return Object.assign(d, { base: '#1f6a28', cols: ['#1b5a22', '#27743a', '#368a40', '#4ea450', '#20652a'], w: 1.2 });
+  if (/floratam/.test(m)) return Object.assign(d, { w: 1.2 });
+  return d;
+}
+function buildTile(sp, n, u) {
+  const c = document.createElement('canvas'); c.width = c.height = n; const g = c.getContext('2d'), R = seededRng(11);
+  g.fillStyle = sp.base; g.fillRect(0, 0, n, n); g.lineCap = 'round'; g.lineJoin = 'round';
+  const each = (x, y, r, fn) => { for (const ox of [-n, 0, n]) for (const oy of [-n, 0, n]) { const X = x + ox, Y = y + oy; if (X < -r || X > n + r || Y < -r || Y > n + r) continue; fn(X, Y); } };
+  const pick = () => sp.cols[Math.floor(R() * sp.cols.length)];
+  if (sp.kind === 'sod') {
+    const cnt = Math.round(n * n / (5 * u * u) * sp.dens);
+    for (let i = 0; i < cnt; i++) {
+      const x = R() * n, y = R() * n, len = (5 + R() * 8) * u * sp.len, lean = (R() - .5) * 5 * u, col = pick(), w = Math.max(1, (.9 + R() * .9) * u * sp.w);
+      each(x, y, len, (X, Y) => { g.strokeStyle = col; g.lineWidth = w; g.beginPath(); g.moveTo(X, Y); g.quadraticCurveTo(X + lean * .3, Y - len * .6, X + lean, Y - len); g.stroke(); });
+    }
+  } else if (sp.kind === 'mulch') {
+    const cnt = Math.round(n * n / (10 * u * u));
+    for (let i = 0; i < cnt; i++) {
+      const x = R() * n, y = R() * n, len = (6 + R() * 10) * u, w = (2 + R() * 2.4) * u, a = R() * Math.PI, dx = Math.cos(a) * len / 2, dy = Math.sin(a) * len / 2, col = pick();
+      each(x, y, len, (X, Y) => {
+        g.strokeStyle = 'rgba(0,0,0,.38)'; g.lineWidth = w + u; g.beginPath(); g.moveTo(X - dx + .6 * u, Y - dy + .9 * u); g.lineTo(X + dx + .6 * u, Y + dy + .9 * u); g.stroke();
+        g.strokeStyle = col; g.lineWidth = w; g.beginPath(); g.moveTo(X - dx, Y - dy); g.lineTo(X + dx, Y + dy); g.stroke();
+        g.strokeStyle = 'rgba(255,255,255,.10)'; g.lineWidth = Math.max(1, w * .35); g.beginPath(); g.moveTo(X - dx, Y - dy - w * .2); g.lineTo(X + dx, Y + dy - w * .2); g.stroke();
+      });
+    }
+  } else if (sp.kind === 'rock') {
+    const cnt = Math.round(n * n / (sp.size * sp.size * u * u * .4));
+    for (let i = 0; i < cnt; i++) {
+      const x = R() * n, y = R() * n, base = sp.size * u * (sp.vary ? .35 + R() * 1.1 : .7 + R() * .6) / 2, rx = base, ry = base * (.65 + R() * .3), rot = R() * Math.PI, col = pick();
+      const verts = 6 + Math.floor(R() * 3), jit = []; for (let k = 0; k < verts; k++) jit.push(.78 + R() * .35);
+      const outline = (X, Y, ox, oy) => {
+        g.beginPath();
+        if (sp.angular) { for (let k = 0; k < verts; k++) { const t = k / verts * Math.PI * 2, px = Math.cos(t) * rx * jit[k], py = Math.sin(t) * ry * jit[k], X2 = X + ox + px * Math.cos(rot) - py * Math.sin(rot), Y2 = Y + oy + px * Math.sin(rot) + py * Math.cos(rot); k ? g.lineTo(X2, Y2) : g.moveTo(X2, Y2); } g.closePath(); }
+        else g.ellipse(X + ox, Y + oy, rx, ry, rot, 0, Math.PI * 2);
+      };
+      each(x, y, base * 2, (X, Y) => {
+        outline(X, Y, .8 * u, 1.2 * u); g.fillStyle = 'rgba(0,0,0,.5)'; g.fill();
+        outline(X, Y, 0, 0); g.fillStyle = col; g.fill(); g.strokeStyle = 'rgba(0,0,0,.28)'; g.lineWidth = Math.max(1, .8 * u); g.stroke();
+        g.save(); g.beginPath(); outline(X, Y, 0, 0); g.clip(); g.fillStyle = 'rgba(255,255,255,.16)'; g.beginPath(); g.ellipse(X - rx * .25, Y - ry * .3, rx * .6, ry * .5, rot, 0, Math.PI * 2); g.fill(); g.restore();
+      });
+    }
+  } else { // dirt
+    const cnt = Math.round(n * n / (1.2 * u * u));
+    for (let i = 0; i < cnt; i++) { const x = R() * n, y = R() * n, r = (.5 + R() * 1.8) * u, col = pick(); each(x, y, r, (X, Y) => { g.fillStyle = col; g.beginPath(); g.arc(X, Y, r, 0, Math.PI * 2); g.fill(); }); }
+    const cl = Math.round(n * n / (260 * u * u));
+    for (let i = 0; i < cl; i++) { const x = R() * n, y = R() * n, r = (1.6 + R() * 2.4) * u; each(x, y, r, (X, Y) => { g.fillStyle = 'rgba(0,0,0,.28)'; g.beginPath(); g.ellipse(X + .6 * u, Y + .9 * u, r, r * .75, 0, 0, Math.PI * 2); g.fill(); g.fillStyle = pick(); g.beginPath(); g.ellipse(X, Y, r, r * .75, 0, 0, Math.PI * 2); g.fill(); g.fillStyle = 'rgba(255,255,255,.07)'; g.beginPath(); g.ellipse(X - r * .2, Y - r * .25, r * .55, r * .4, 0, 0, Math.PI * 2); g.fill(); }); }
+  }
+  return c;
+}
+function materialPattern(ctx, service, mat, u) {
+  const sl = TEX_SLUG(service, mat), key = sl + '|' + Math.round(u * 10);
+  if (TEX_PAT[key]) return TEX_PAT[key];
+  const img = TEX_IMG[sl] || TEX_IMG[TEX_SLUG(service)];
+  let c;
+  if (img) { const n = Math.max(96, Math.round(150 * u)); c = document.createElement('canvas'); c.width = c.height = n; const sc = Math.max(n / img.width, n / img.height); c.getContext('2d').drawImage(img, (n - img.width * sc) / 2, (n - img.height * sc) / 2, img.width * sc, img.height * sc); }
+  else c = buildTile(texSpec(service, mat), Math.max(64, Math.round(96 * u)), u);
+  return (TEX_PAT[key] = ctx.createPattern(c, 'repeat'));
+}
+function shapeTex(s) {
+  if (s.type !== 'area') return null;
+  const it = s.itemId && JOB ? JOB.items.find(i => i.id === s.itemId) : null;
+  if (it && TEX_SERVICES.includes(it.service)) return { service: it.service, mat: it.material || '' };
+  if (s.style === 'sod') return { service: 'sod', mat: '' };
+  return null;
 }
 function shapeColor(s) {
   const st = shapeStyle(s);
@@ -531,7 +613,8 @@ function drawShapes(ctx, photo, tf, u, o) {
     if (s.type === 'area' && pts.length > 1) {
       path(pts.length > 2 && !s.draft);
       if (pts.length > 2) {
-        if (sty === 'sod') { ctx.fillStyle = sodPattern(ctx, u); ctx.globalAlpha = .94; ctx.fill(); ctx.globalAlpha = 1; }
+        const tx = shapeTex(s);
+        if (tx) { ctx.fillStyle = materialPattern(ctx, tx.service, tx.mat, u); ctx.globalAlpha = .96; ctx.fill(); ctx.globalAlpha = 1; }
         else { ctx.fillStyle = col + '40'; ctx.fill(); }
       }
       stroke(sel ? 5 : 3.5);
@@ -590,6 +673,7 @@ async function drawWatermark(ctx, w, h) {
   ctx.save(); ctx.globalAlpha = 1; ctx.drawImage(im, w - sz - m, h - sz - m, sz, sz); ctx.restore();
 }
 async function renderAnnotated(photo, srcBlob) {
+  try { await loadTextures(); } catch (e) {}
   const bmp = await createImageBitmap(srcBlob);
   const c = document.createElement('canvas'); c.width = bmp.width; c.height = bmp.height;
   const ctx = c.getContext('2d'); ctx.drawImage(bmp, 0, 0);
@@ -603,15 +687,14 @@ const TOOLS = [
   { id: 'select', ic: '👆', t: 'Select', hint: 'Tap a shape to select it. Drag a white dot to fix a point. Drag empty space to move; pinch or scroll to zoom.' },
   { id: 'cal', ic: '📐', t: 'Calibrate', hint: 'Optional. Tap the two ends of something you know the length of (tape, 4-ft level, a paver) and enter its real length. Skip this if you will type measurements in yourself.' },
   { id: 'line', ic: '📏', t: 'Length', hint: 'Tap along a hedge, edge or fence line. Tap ✔ Finish when done. Without calibration, you type the length in.' },
-  { id: 'area', ic: '⬠', t: 'Area', hint: 'Tap each corner of the bed or lawn. Tap the first dot or ✔ Close shape to finish. Without calibration, you type the size in.' },
+  { id: 'area', ic: '⬠', t: 'Area', hint: 'Tap each corner of the bed or lawn. Tap the first dot or ✔ Close shape. Then Select the shape → ＋ Save as item and pick the type of work and material: the area fills with that material.' },
   { id: 'edge', ic: '▬', t: 'Edging', hint: 'Composite edging: tap along the edge line. Tap ✔ Finish when done. Shows as a board strip on the photo.' },
-  { id: 'sod', ic: '▦', t: 'Sod', hint: 'Sod: tap each corner of the sod area. Tap the first dot or ✔ Close shape. The area fills in green.' },
   { id: 'count', ic: '🔢', t: 'Count', hint: 'Tap each plant, tree or item. Tap ✔ Finish when done.' },
   { id: 'arrow', ic: '➚', t: 'Arrow', hint: 'Tap the tail, then the point.' },
   { id: 'text', ic: '🅣', t: 'Text', hint: 'Tap where the note should go.' },
   { id: 'free', ic: '✎', t: 'Draw', hint: 'Drag one finger to draw. Use two fingers to move the picture.' }
 ];
-const TOOL_SHAPE = { edge: { type: 'line', style: 'edging' }, sod: { type: 'area', style: 'sod' } };
+const TOOL_SHAPE = { edge: { type: 'line', style: 'edging' } };
 const Ed = {
   photo: null, img: null, srcBlob: null, cv: null, ctx: null, v: { s: 1, tx: 0, ty: 0 }, tool: 'select', draft: null, sel: null,
   bg: null, ptrs: new Map(), hist: [], color: ANNOT_COLORS[0], drag: null, gesture: null, moved: false, raf: 0, dirty: false, onClose: null,
@@ -870,7 +953,7 @@ function exportSurvey() {
 const App = {
   screen: 'home', saveT: 0,
   async init() {
-    await DB.open(); Ed.init();
+    await DB.open(); Ed.init(); loadTextures().then(() => { if (Ed.photo) Ed.draw(); });
     $('#btnNewJob').onclick = () => this.newJob();
     $('#btnSettings').onclick = () => this.settings();
     $('#btnOpenDrive').onclick = () => this.openFromDrive();
@@ -956,7 +1039,10 @@ const App = {
     const it = JOB.items.find(i => i.id === id); if (!it) return;
     const photo = it.photoId ? JOB.photos.find(p => p.id === it.photoId) : null;
     const shape = photo ? (photo.shapes || []).find(s => s.id === it.shapeId) : null;
-    this.openItemSheet({ item: it, shape, photo }).then(() => this.itemsChanged());
+    this.openItemSheet({ item: it, shape, photo }).then(async () => {
+      if (photo) { try { const rec = await DB.get('photos', photo.id); if (rec && rec.orig) { rec.ann = await renderAnnotated(photo, rec.orig); await DB.put('photos', rec); photoUrl(photo.id, 'ann', rec.ann); photo.annDirty = true; } } catch (e) { console.error(e); } }
+      this.itemsChanged();
+    });
   },
   editPhoto(id) { Ed.open(id, dirty => { if (dirty) this.touch(); this.renderJob(); }); },
   async addPhotos(files) {
@@ -1007,7 +1093,7 @@ const App = {
       $('#itFrom').textContent = shape ? (kind === 'area' ? 'Outlined on the photo. Enter length × width for each section; the sections add up to the total.' + (photoEst != null ? ' (Photo estimate ≈ ' + fmt(photoEst, 0) + ' sq ft, for reference only.)' : '') : calc == null && kind !== 'count' ? 'Highlighted on the photo. Not calibrated, so type in the measurement you took.' : calc != null ? 'Measured from photo: ' + (kind === 'area' ? fmt(calc, 0) + ' sq ft' : kind === 'length' ? fmt(calc, 1) + ' ft' : fmt(calc, 0) + ' counted') + ' (≈ estimate — confirm with tape or wheel if the job is big).' : '') : 'Typed-in item (no photo measurement).';
       const chips = $('#itChips'); chips.innerHTML = '';
       Object.keys(SERVICES).filter(compatible).forEach(k => { const b = document.createElement('button'); b.className = 'chip'; b.dataset.k = k; b.innerHTML = '<span class="ic">' + SERVICES[k].icon + '</span>' + SERVICES[k].label; b.onclick = () => { service = k; ls.set('ws_last_service', k); refresh(true); }; chips.appendChild(b); });
-      $('#itName').value = it ? it.name : ''; $('#itNotes').value = it ? (it.notes || '') : ''; $('#itVerified').checked = it ? !!it.verified : false;
+      $('#itName').value = it && !isAutoName(it) ? it.name : ''; $('#itNotes').value = it ? (it.notes || '') : ''; $('#itVerified').checked = it ? !!it.verified : false;
       $('#itValue').value = it ? it.value : (calcRounded != null ? calcRounded : '');
       $('#itDepth').value = it && it.depthIn ? it.depthIn : ''; $('#itHeight').value = it && it.heightFt ? it.heightFt : '';
       $('#itMeasure').value = it ? itemMeasure(it) : (kind || 'area');
@@ -1049,7 +1135,7 @@ const App = {
         if (s && s.depth != null && userPicked && !$('#itDepth').value) $('#itDepth').value = s.depth;
         if (s && s.depth != null && !$('#itDepth').value) $('#itDepth').value = s.depth;
         $('#itHeightWrap').hidden = !(s && s.height);
-        $('#itName').placeholder = s ? 'e.g. ' + (service === 'hedge' ? 'Back hedge' : service === 'plants' ? 'Front shrubs' : 'Front bed') : 'e.g. Front bed, Side of pool, Back hedge';
+        $('#itName').placeholder = (s ? 'e.g. ' + (service === 'hedge' ? 'Back hedge' : service === 'plants' ? 'Front shrubs' : 'Front bed') : 'e.g. Front bed, Side of pool, Back hedge') + ' (blank = named after the material)';
         const showEdge = !it && perim && (service === 'mulch' || service === 'rock');
         $('#itEdgeWrap').hidden = !showEdge; if (showEdge) $('#itEdgeTx').textContent = 'Also add edging along the outside (≈ ' + fmt(perim, 1) + ' lin ft)'; else $('#itEdge').checked = false;
         const v = parseFloat($('#itValue').value) || 0, d = parseFloat($('#itDepth').value) || 0;
@@ -1066,8 +1152,10 @@ const App = {
         let val = parseFloat($('#itValue').value); if (!(val > 0) && dimTotal() > 0) val = Math.round(dimTotal() * 10) / 10;
         if (!(val > 0)) { toast('Enter a quantity greater than 0'); return; }
         const item = it || { id: uid(), createdAt: nowIso() };
+        const typedName = $('#itName').value.trim(), autoNm = !typedName;
+        const matPicked = s.mats ? $('#itMat').value : '';
         Object.assign(item, {
-          name: $('#itName').value.trim() || s.label, service, measure: m, value: m === 'length' ? Math.round(val * 10) / 10 : Math.round(val * 100) / 100,
+          autoName: autoNm, name: typedName || matPicked || s.label, service, measure: m, value: m === 'length' ? Math.round(val * 10) / 10 : Math.round(val * 100) / 100,
           material: s.mats ? $('#itMat').value : '', depthIn: s.depth != null ? (parseFloat($('#itDepth').value) || s.depth) : 0, heightFt: s.height ? (parseFloat($('#itHeight').value) || 0) : 0,
           notes: $('#itNotes').value.trim(), verified: $('#itVerified').checked, method: shape ? 'photo' : (item.method || 'manual'),
           photoId: photo ? photo.id : (item.photoId || ''), shapeId: shape ? shape.id : (item.shapeId || ''),
