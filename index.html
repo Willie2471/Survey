@@ -480,11 +480,23 @@ function shapeStyle(s) {
 }
 let SOD_PAT = null;
 function sodPattern(ctx, u) {
-  const n = Math.max(8, Math.round(12 * u)), k = n + '|' + u;
+  // Dense, varied grass blades on a deep green base (tile is seamless; seeded so it looks the same every time)
+  const n = Math.max(48, Math.round(64 * u)), k = n + '|' + u;
   if (SOD_PAT && SOD_PAT.k === k) return SOD_PAT.p;
   const c = document.createElement('canvas'); c.width = c.height = n; const g = c.getContext('2d');
-  g.strokeStyle = 'rgba(20,90,40,.75)'; g.lineWidth = Math.max(1, u * 1.2); g.lineCap = 'round';
-  [[.15, .95, .3, .55], [.55, .95, .7, .5], [.85, .6, .95, .2], [.35, .35, .45, .05]].forEach(l => { g.beginPath(); g.moveTo(l[0] * n, l[1] * n); g.lineTo(l[2] * n, l[3] * n); g.stroke(); });
+  g.fillStyle = '#2c7a2e'; g.fillRect(0, 0, n, n);
+  let seed = 7; const rnd = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
+  const cols = ['#1f6326', '#2f8a34', '#3fa63f', '#56b94a', '#7ccd5a', '#246b2b', '#38993b'];
+  g.lineCap = 'round';
+  const blades = Math.round(n * n / (5 * u * u));
+  for (let i = 0; i < blades; i++) {
+    const x = rnd() * n, y = rnd() * n, len = (5 + rnd() * 8) * u, lean = (rnd() - .5) * 5 * u;
+    g.strokeStyle = cols[Math.floor(rnd() * cols.length)]; g.lineWidth = Math.max(1, (.9 + rnd() * .9) * u);
+    for (const ox of [-n, 0, n]) for (const oy of [-n, 0, n]) {
+      const X = x + ox, Y = y + oy; if (X < -len || X > n + len || Y < -len || Y > n + len) continue;
+      g.beginPath(); g.moveTo(X, Y); g.quadraticCurveTo(X + lean * .3, Y - len * .6, X + lean, Y - len); g.stroke();
+    }
+  }
   SOD_PAT = { k, p: ctx.createPattern(c, 'repeat') }; return SOD_PAT.p;
 }
 function shapeColor(s) {
@@ -509,16 +521,19 @@ function drawShapes(ctx, photo, tf, u, o) {
     if (s.type === 'area' && pts.length > 1) {
       path(pts.length > 2 && !s.draft);
       if (pts.length > 2) {
-        if (sty === 'sod') { ctx.fillStyle = '#3fae49'; ctx.globalAlpha = .88; ctx.fill(); ctx.globalAlpha = 1; ctx.fillStyle = sodPattern(ctx, u); ctx.fill(); }
+        if (sty === 'sod') { ctx.fillStyle = sodPattern(ctx, u); ctx.globalAlpha = .94; ctx.fill(); ctx.globalAlpha = 1; }
         else { ctx.fillStyle = col + '40'; ctx.fill(); }
       }
       stroke(sel ? 5 : 3.5);
     } else if (s.type === 'line' && sty === 'edging' && pts.length > 1) {
-      // composite edging: wide band with board-joint ticks
-      path(false); ctx.strokeStyle = '#fff'; ctx.lineWidth = 14 * u; ctx.stroke();
-      ctx.strokeStyle = sel ? '#f39c12' : '#4e3b2a'; ctx.lineWidth = 10 * u; ctx.stroke();
-      ctx.strokeStyle = '#a67c52'; ctx.lineWidth = 5 * u; ctx.stroke();
-      ctx.strokeStyle = 'rgba(0,0,0,.55)'; ctx.lineWidth = 10 * u; ctx.setLineDash([1.5 * u, 22 * u]); ctx.stroke(); ctx.setLineDash([]);
+      // black composite edging: soft ground shadow, smooth charcoal strip, subtle top-edge sheen
+      path(false);
+      if (sel) { ctx.strokeStyle = '#f39c12'; ctx.lineWidth = 17 * u; ctx.stroke(); }
+      ctx.strokeStyle = 'rgba(0,0,0,.30)'; ctx.lineWidth = 13 * u; ctx.stroke();
+      ctx.strokeStyle = 'rgba(255,255,255,.85)'; ctx.lineWidth = 10.5 * u; ctx.stroke();
+      ctx.strokeStyle = '#1c1c1c'; ctx.lineWidth = 8.5 * u; ctx.stroke();
+      ctx.strokeStyle = '#3d3d3d'; ctx.lineWidth = 3 * u; ctx.stroke();
+      ctx.strokeStyle = 'rgba(255,255,255,.22)'; ctx.lineWidth = 1 * u; ctx.stroke();
     } else if ((s.type === 'line' || s.type === 'free') && pts.length > 1) {
       path(false); stroke(sel ? 5 : (s.type === 'free' ? 4 : 3.5));
     } else if (s.type === 'cal' && pts.length > 1) {
