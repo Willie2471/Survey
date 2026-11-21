@@ -125,6 +125,7 @@ h2.sec{font-size:13px;letter-spacing:1px;text-transform:uppercase;color:var(--g1
 #edZoom{top:120px;z-index:4}
 #edAct{bottom:150px}
 #toast{pointer-events:none}
+#edTop{padding-right:72px}
 .vis{display:flex;align-items:flex-start;gap:8px;font-size:12px;line-height:1.35;padding:7px 10px;border-radius:8px;margin:0 0 6px}
 .vis small{display:block;font-weight:400;font-size:12px}
 .vis.cust{background:#e3f6ea;color:#14663a;border-left:5px solid #27ae60}
@@ -208,7 +209,6 @@ input.f-crew,textarea.f-crew{border-color:#e67e22;background:#fffaf2}
   <div id="edTop">
     <button id="edDone">✔ Done</button>
     <div id="edTitle">Photo</div>
-    <button id="edMenu">⋯</button>
   </div>
   <div id="edWrap">
     <canvas id="edCanvas"></canvas>
@@ -736,7 +736,7 @@ const Ed = {
   init() {
     this.cv = $('#edCanvas'); this.ctx = this.cv.getContext('2d');
     const tb = $('#edTools'); tb.innerHTML = '';
-    { const u = document.createElement('button'); u.id = 'edUndo'; u.innerHTML = '<span class="ic">↩</span>Undo'; tb.appendChild(u); const sp = document.createElement('i'); sp.className = 'sep'; tb.appendChild(sp); }
+    { const u = document.createElement('button'); u.id = 'edUndo'; u.innerHTML = '<span class="ic">↩</span>Undo'; tb.appendChild(u); const m = document.createElement('button'); m.id = 'edMenu'; m.innerHTML = '<span class="ic">⋯</span>Caption'; tb.appendChild(m); const sp = document.createElement('i'); sp.className = 'sep'; tb.appendChild(sp); }
     TOOLS.forEach(t => { const b = document.createElement('button'); b.dataset.tool = t.id; b.innerHTML = '<span class="ic">' + t.ic + '</span>' + t.t; b.onclick = () => this.setTool(t.id); tb.appendChild(b); });
     const cl = $('#edColors'); cl.innerHTML = '<span style="font-size:12px;color:#aaa">Color</span>';
     ANNOT_COLORS.forEach(c => { const i = document.createElement('i'); i.style.background = c; i.onclick = () => this.setColor(c); i.dataset.c = c; cl.appendChild(i); });
