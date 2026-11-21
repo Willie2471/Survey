@@ -125,6 +125,14 @@ h2.sec{font-size:13px;letter-spacing:1px;text-transform:uppercase;color:var(--g1
 #edZoom{top:120px;z-index:4}
 #edAct{bottom:150px}
 #toast{pointer-events:none}
+.vis{display:flex;align-items:flex-start;gap:8px;font-size:12px;line-height:1.35;padding:7px 10px;border-radius:8px;margin:0 0 6px}
+.vis small{display:block;font-weight:400;font-size:12px}
+.vis.cust{background:#e3f6ea;color:#14663a;border-left:5px solid #27ae60}
+.vis.crew{background:#fdebd3;color:#8a4500;border-left:5px solid #e67e22}
+input.f-cust,textarea.f-cust{border-color:#27ae60;background:#f6fcf8}
+input.f-crew,textarea.f-crew{border-color:#e67e22;background:#fffaf2}
+.legend{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:12px 0 0}
+.legend .vis{margin:0;align-items:center}
 #edTools .sep{flex:none;width:2px;margin:6px 2px;background:#666;border-radius:2px}
 #itAddons{margin-top:14px;padding:10px 12px 4px;border:2px solid var(--line);border-radius:12px;background:#fafafa}
 #itAddons>b{display:block;font-size:13px;margin-bottom:4px}
@@ -170,6 +178,7 @@ h2.sec{font-size:13px;letter-spacing:1px;text-transform:uppercase;color:var(--g1
     <input type="file" id="fileCam" accept="image/*" capture="environment" hidden>
     <input type="file" id="filePick" accept="image/*" multiple hidden>
 
+    <div class="legend"><div class="vis cust"><span>👁</span><span><b>Green</b> = customer sees it</span></div><div class="vis crew"><span>🔒</span><span><b>Orange</b> = crew &amp; office only</span></div></div>
     <h2 class="sec">Scope items <span id="itemCount"></span></h2>
     <div id="itemList"></div>
 
@@ -186,7 +195,8 @@ h2.sec{font-size:13px;letter-spacing:1px;text-transform:uppercase;color:var(--g1
     <label for="fCrew">Crew member</label>
     <input id="fCrew" placeholder="Your name" autocomplete="off">
     <label for="fNotes">Site notes (gate width, parking, pets, access…)</label>
-    <textarea id="fNotes" placeholder="Anything the estimator or crew should know"></textarea>
+    <div class="visph" data-k="crew" data-d="Private notes for your crew and the estimator. Candid is fine here."></div>
+    <textarea id="fNotes" class="f-crew" placeholder="Private: gate code, dogs, access, anything the estimator or crew should know"></textarea>
   </div>
   <div class="bar"><div class="in" style="grid-template-columns:1fr">
     <button class="btn blue" id="btnSync">☁ Save to Drive</button>
@@ -220,7 +230,8 @@ h2.sec{font-size:13px;letter-spacing:1px;text-transform:uppercase;color:var(--g1
     <label>Type of work</label>
     <div class="chips" id="itChips"></div>
     <label for="itName">Area / zone name</label>
-    <input id="itName" placeholder="e.g. Front bed, Side of pool, Back hedge" autocomplete="off">
+    <div class="visph" data-k="cust" data-d="Printed on the photo next to this outline."></div>
+    <input id="itName" class="f-cust" placeholder="e.g. Front bed, Side of pool, Back hedge" autocomplete="off">
     <div id="itMatWrap"><label for="itMat">Material</label><select id="itMat"></select></div>
     <div id="itMeasureWrap" hidden><label for="itMeasure">Measured as</label>
       <select id="itMeasure"><option value="area">Area (sq ft)</option><option value="length">Length (lin ft)</option><option value="count">Count (each)</option></select></div>
@@ -248,7 +259,8 @@ h2.sec{font-size:13px;letter-spacing:1px;text-transform:uppercase;color:var(--g1
       </div>
     </div>
     <label for="itNotes">Notes</label>
-    <textarea id="itNotes" placeholder="Details for the estimate or crew…"></textarea>
+    <div class="visph" data-k="crew" data-d="For the estimate and your crew. Not printed on the photo."></div>
+    <textarea id="itNotes" class="f-crew" placeholder="Private: access issues, pricing thoughts, anything the customer should not see…"></textarea>
     <label class="chk"><input type="checkbox" id="itVerified"> Verified on site (tape / wheel / laser)</label>
     <div class="btnrow">
       <button class="btn gray" id="itCancel">Cancel</button>
@@ -399,10 +411,15 @@ function dialog(o) {
   });
 }
 const confirmDlg = (msg, ok, cls) => dialog({ title: 'Please confirm', body: '<p>' + esc(msg) + '</p>', buttons: [{ label: 'Cancel', value: false, cls: 'gray' }, { label: ok || 'OK', value: true, cls: cls || '' }] });
-function askText(title, placeholder, def, multi) {
+/* Customer-vs-crew markers. cust = the customer can see it; crew = private to crew and the estimator. */
+const VIS = {
+  cust: d => '<div class="vis cust"><span>👁</span><span><b>CUSTOMER SEES THIS</b> — keep it professional' + (d ? '<small>' + d + '</small>' : '') + '</span></div>',
+  crew: d => '<div class="vis crew"><span>🔒</span><span><b>CREW &amp; OFFICE ONLY</b> — never shown to the customer' + (d ? '<small>' + d + '</small>' : '') + '</span></div>'
+};
+function askText(title, placeholder, def, multi, vis, visDetail) {
   return dialog({
-    title, body: multi ? '<textarea id="askIn"></textarea>' : '<input id="askIn" autocomplete="off">',
-    onOpen: ov => { const i = $('#askIn', ov); i.placeholder = placeholder || ''; i.value = def || ''; setTimeout(() => i.focus(), 50); i.addEventListener('keydown', e => { if (e.key === 'Enter' && !multi) $('.btnrow .btn:last-child', ov).click(); }); },
+    title, body: (vis ? VIS[vis](visDetail) : '') + (multi ? '<textarea id="askIn"></textarea>' : '<input id="askIn" autocomplete="off">'),
+    onOpen: ov => { const i = $('#askIn', ov); if (vis) i.classList.add('f-' + vis); i.placeholder = placeholder || ''; i.value = def || ''; setTimeout(() => i.focus(), 50); i.addEventListener('keydown', e => { if (e.key === 'Enter' && !multi) $('.btnrow .btn:last-child', ov).click(); }); },
     buttons: [{ label: 'Cancel', value: null, cls: 'gray' }, { label: 'OK', action: ov => $('#askIn', ov).value.trim() }]
   });
 }
@@ -709,7 +726,7 @@ const TOOLS = [
   { id: 'area', ic: '⬠', t: 'Area', hint: 'Tap each corner of the bed or lawn. Tap the first dot or ✔ Close shape. Then Select the shape → ＋ Save as item and pick the type of work and material: the area fills with that material.' },
   { id: 'count', ic: '🔢', t: 'Count', hint: 'Tap each plant, tree or item. Tap ✔ Finish when done.' },
   { id: 'arrow', ic: '➚', t: 'Arrow', hint: 'Tap the tail, then the point.' },
-  { id: 'text', ic: '🅣', t: 'Text', hint: 'Tap where the note should go.' },
+  { id: 'text', ic: '🅣', t: 'Text', hint: 'Tap where the note should go. 👁 The customer sees notes written on the photo, so keep them professional. Crew-only details go in the item Notes.' },
   { id: 'free', ic: '✎', t: 'Draw', hint: 'Drag one finger to draw. Use two fingers to move the picture.' }
 ];
 const Ed = {
@@ -832,7 +849,7 @@ const Ed = {
   tap(x, y) {
     const ip = this.inv(x, y), t = this.tool;
     if (t === 'select') { const h = this.hitShape([x, y]); this.sel = h ? h.id : null; this.draw(); return; }
-    if (t === 'text') { askText('Add note', 'Type a short note…', '').then(txt => { if (!txt) return; this.pushHist(); this.photo.shapes.push({ id: uid(), type: 'text', pts: [ip], text: txt, color: this.color }); this.dirty = true; this.draw(); }); return; }
+    if (t === 'text') { askText('Add note', 'Type a short note…', '', false, 'cust', 'Written on the photo the customer sees.').then(txt => { if (!txt) return; this.pushHist(); this.photo.shapes.push({ id: uid(), type: 'text', pts: [ip], text: txt, color: this.color }); this.dirty = true; this.draw(); }); return; }
     if (t === 'arrow') { if (!this.draft) this.draft = { id: uid(), type: 'arrow', pts: [ip], color: this.color, draft: true }; else { this.draft.pts.push(ip); const s = this.draft; this.draft = null; this.pushHist(); s.draft = false; this.photo.shapes.push(s); this.dirty = true; } this.draw(); return; }
     if (!this.draft) { this.draft = { id: uid(), type: t, tool: t, pts: [], color: '#f1c40f', draft: true }; }
     if (this.draft.type === 'area' && this.draft.pts.length >= 3 && dist(this.tf(this.draft.pts[0]), [x, y]) < 24) { this.finishDraft(); return; }
@@ -869,7 +886,7 @@ const Ed = {
     } else if ((act === 'edit' || act === 'item') && s) {
       this.openItemFor(s);
     } else if (act === 'edittext' && s) {
-      const t = await askText('Edit note', '', s.text); if (t) { this.pushHist(); s.text = t; this.dirty = true; this.draw(); }
+      const t = await askText('Edit note', '', s.text, false, 'cust', 'Written on the photo the customer sees.'); if (t) { this.pushHist(); s.text = t; this.dirty = true; this.draw(); }
     }
   },
   async finishDraft() {
@@ -918,7 +935,17 @@ const Ed = {
       buttons: [{ label: 'Close', value: null, cls: 'gray' }],
       onOpen: (ov, close) => $$('[data-v]', ov).forEach(b => b.onclick = () => close(b.dataset.v))
     });
-    if (choice === 'cap') { const t = await askText('Photo caption', 'e.g. Front bed, west side', this.photo.caption || ''); if (t != null) { this.photo.caption = t; $('#edTitle').textContent = t || 'Photo'; this.dirty = true; } const n = await askText('Internal notes for the estimator (optional)', 'Not shown to the customer', this.photo.notes || '', true); if (n != null) { this.photo.notes = n; this.dirty = true; } }
+    if (choice === 'cap') {
+      const p = this.photo;
+      const r = await dialog({
+        title: 'Photo caption & notes',
+        body: '<label style="margin-top:0">Caption</label>' + VIS.cust('Shows with this photo on the customer’s report.') + '<input id="pdCap" class="f-cust" autocomplete="off" placeholder="e.g. Front bed, west side">'
+          + '<label>Internal notes for the estimator</label>' + VIS.crew('Private. Never shown to the customer.') + '<textarea id="pdNotes" class="f-crew" placeholder="Private: anything the estimator or crew should know about this photo"></textarea>',
+        onOpen: ov => { $('#pdCap', ov).value = p.caption || ''; $('#pdNotes', ov).value = p.notes || ''; },
+        buttons: [{ label: 'Cancel', value: null, cls: 'gray' }, { label: 'Save', action: ov => ({ cap: $('#pdCap', ov).value.trim(), notes: $('#pdNotes', ov).value.trim() }) }]
+      });
+      if (r) { p.caption = r.cap; p.notes = r.notes; $('#edTitle').textContent = r.cap || 'Photo'; this.dirty = true; }
+    }
     else if (choice === 'clr') { if (await confirmDlg('Remove every shape on this photo? Linked scope items will stay but lose their outline.', 'Clear', 'bad')) { this.pushHist(); this.photo.shapes.forEach(s => { }); this.photo.shapes = []; this.photo.calibration = null; this.dirty = true; this.sel = null; this.draw(); } }
     else if (choice === 'del') { if (await confirmDlg('Delete this photo and its annotations?', 'Delete', 'bad')) { const id = this.photo.id; this.photo.shapes = []; this.draft = null; this.photo = null; this.img = null; $('#screenEditor').hidden = true; await App.deletePhoto(id); } }
   }
@@ -967,6 +994,7 @@ function exportSurvey() {
 const App = {
   screen: 'home', saveT: 0,
   async init() {
+    $$('.visph').forEach(e => { e.outerHTML = VIS[e.dataset.k](e.dataset.d); });
     await DB.open(); Ed.init(); loadTextures().then(() => { if (Ed.photo) Ed.draw(); });
     $('#btnNewJob').onclick = () => this.newJob();
     $('#btnSettings').onclick = () => this.settings();
@@ -1029,9 +1057,9 @@ const App = {
     else {
       const cards = [];
       for (const it of JOB.items) {
-        const s = SERVICES[it.service]; const u = it.photoId ? await ensurePhotoUrl(it.photoId, 'ann') : '';
+        const s = SERVICES[it.service];
         const extra = [it.material, it.depthIn ? it.depthIn + '" deep' : '', it.heightFt ? it.heightFt + ' ft tall' : '', it.dims && it.dims.length ? it.dims.map(d => d[0] + '×' + d[1]).join(' + ') + ' ft' : ''].filter(Boolean).join(' · ');
-        cards.push('<div class="card" data-id="' + it.id + '"><div class="th" style="' + (u ? 'background-image:url(' + u + ')' : 'background:' + s.color + '22') + '">' + (u ? '' : s.icon) + '</div><div class="tx"><div class="nm">' + esc(it.name) + '</div><div class="sub">' + s.icon + ' ' + esc(s.label) + ' — <b>' + qtyText(it) + '</b></div>' + (extra ? '<div class="sub">' + esc(extra) + '</div>' : '') + '<div class="sub">' + (it.verified ? '<span class="badge ok">✓ verified</span>' : it.method === 'photo' ? '<span class="badge est">≈ photo estimate</span>' : '<span class="badge est">typed in</span>') + '</div></div></div>');
+        cards.push('<div class="card" data-id="' + it.id + '"><div class="tx"><div class="nm">' + esc(it.name) + '</div><div class="sub">' + s.icon + ' ' + esc(s.label) + ' — <b>' + qtyText(it) + '</b></div>' + (extra ? '<div class="sub">' + esc(extra) + '</div>' : '') + '<div class="sub">' + (it.verified ? '<span class="badge ok">✓ verified</span>' : it.method === 'photo' ? '<span class="badge est">≈ photo estimate</span>' : '<span class="badge est">typed in</span>') + '</div></div></div>');
       }
       box.innerHTML = cards.join('');
       $$('.card', box).forEach(c => c.onclick = () => this.editItem(c.dataset.id));
