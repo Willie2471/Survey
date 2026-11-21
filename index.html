@@ -124,6 +124,11 @@ h2.sec{font-size:13px;letter-spacing:1px;text-transform:uppercase;color:var(--g1
 #edHint{top:64px;transition:opacity .5s}
 #edZoom{top:120px;z-index:4}
 #edAct{bottom:150px}
+#toast{pointer-events:none}
+#edTools .sep{flex:none;width:2px;margin:6px 2px;background:#666;border-radius:2px}
+#itAddons{margin-top:14px;padding:10px 12px 4px;border:2px solid var(--line);border-radius:12px;background:#fafafa}
+#itAddons>b{display:block;font-size:13px;margin-bottom:4px}
+#itAddons .addrow{margin:2px 0 10px 34px}
 .av .hdr{padding-right:80px}
 </style>
 </head>
@@ -193,7 +198,6 @@ h2.sec{font-size:13px;letter-spacing:1px;text-transform:uppercase;color:var(--g1
   <div id="edTop">
     <button id="edDone">✔ Done</button>
     <div id="edTitle">Photo</div>
-    <button id="edUndo">↩</button>
     <button id="edMenu">⋯</button>
   </div>
   <div id="edWrap">
@@ -230,10 +234,22 @@ h2.sec{font-size:13px;letter-spacing:1px;text-transform:uppercase;color:var(--g1
     <div class="hint" id="itCalcHint"></div>
     <div id="itDepthWrap"><label for="itDepth">Depth (inches)</label><input id="itDepth" type="number" inputmode="decimal" step="any"><div class="hint" id="itCy"></div></div>
     <div id="itHeightWrap"><label for="itHeight">Hedge height (ft)</label><input id="itHeight" type="number" inputmode="decimal" step="any" placeholder="e.g. 4"></div>
+    <div id="itAddons" hidden>
+      <b>Goes with this (each adds its own line to the estimate)</b>
+      <label class="chk"><input type="checkbox" id="itFabChk"> 🧵 Geo-textile weed fabric</label>
+      <div class="addrow" id="itFabRow" hidden>
+        <div class="qrow"><div><label for="itFabQty">Fabric length</label><input id="itFabQty" type="number" inputmode="decimal" step="any" placeholder="0"></div><div class="unit">lin ft</div></div>
+        <div class="hint" id="itFabHint"></div>
+      </div>
+      <label class="chk"><input type="checkbox" id="itEdgeChk"> ➖ Composite edging</label>
+      <div class="addrow" id="itEdgeRow" hidden>
+        <div class="qrow"><div><label for="itEdgeQty">Edging length</label><input id="itEdgeQty" type="number" inputmode="decimal" step="any" placeholder="0"></div><div class="unit">lin ft</div></div>
+        <div class="hint" id="itEdgeHint"></div>
+      </div>
+    </div>
     <label for="itNotes">Notes</label>
     <textarea id="itNotes" placeholder="Details for the estimate or crew…"></textarea>
     <label class="chk"><input type="checkbox" id="itVerified"> Verified on site (tape / wheel / laser)</label>
-    <label class="chk" id="itEdgeWrap"><input type="checkbox" id="itEdge"> <span id="itEdgeTx">Also add edging along the outside</span></label>
     <div class="btnrow">
       <button class="btn gray" id="itCancel">Cancel</button>
       <button class="btn bad" id="itDelete" hidden>Delete</button>
@@ -274,12 +290,15 @@ const SERVICES = {
   dirt:    { label: 'Fill Dirt / Soil', icon: '🟤', color: '#a0522d', measure: 'area',   cat: 'dirt',  mats: DIRT_MATS,  depth: 2 },
   sod:     { label: 'Sod',              icon: '🌱', color: '#27ae60', measure: 'area',   cat: 'sod',   mats: SOD_MATS },
   edging:  { label: 'Composite Edging',           icon: '➖', color: '#e67e22', measure: 'length', addon: 'edging' },
-  fabric:  { label: 'Geo-Textile Weed Fabric',      icon: '🧵', color: '#8e44ad', measure: 'length', addon: 'geoTextile' },
+  fabric:  { label: 'Geo-Textile Weed Fabric',      icon: '🧵', color: '#8e44ad', measure: 'length', addon: 'geoTextile', areaOk: true },
   hedge:   { label: 'Hedge / Shrub Trim', icon: '🌳', color: '#16a085', measure: 'length', height: true },
   plants:  { label: 'Plants / Trees',   icon: '🪴', color: '#e91e63', measure: 'count' },
   removal: { label: 'Removal / Haul-off', icon: '🚛', color: '#c0392b', measure: 'area' },
   other:   { label: 'Other Scope',      icon: '📝', color: '#2980b9', measure: 'any' }
 };
+/* Geo-textile is handed to the estimator as lin ft of fabric. When it is figured from an area (length x width),
+   lin ft = sq ft / FABRIC_WIDTH_FT. Change this if your fabric roll is a different width. */
+const FABRIC_WIDTH_FT = 4.5;   // between the 3 ft and 6 ft rolls
 const MEASURE_UNIT = { area: 'sq ft', length: 'lin ft', count: 'ea' };
 const MEASURE_LABEL = { area: 'Area', length: 'Length', count: 'Count' };
 const ANNOT_COLORS = ['#e74c3c', '#f1c40f', '#ffffff', '#3498db', '#111111'];
@@ -489,7 +508,7 @@ function shapeStyle(s) {
    Names: service-material slug, e.g. mulch-pine-bark.jpg, rock-red-lava-rock.jpg (see TEX_SLUG). A service-only file
    (mulch.jpg, rock.jpg, dirt.jpg, sod.jpg) is used when no material-specific file exists. */
 const TEX_SLUG = (service, mat) => (service + (mat ? '-' + mat : '')).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
-const TEX_SERVICES = ['mulch', 'rock', 'dirt', 'sod'];
+const TEX_SERVICES = ['mulch', 'rock', 'dirt', 'sod', 'fabric'];
 function texFiles() { const out = []; TEX_SERVICES.forEach(k => { out.push(TEX_SLUG(k)); (SERVICES[k].mats || []).forEach(m => out.push(TEX_SLUG(k, m))); }); return out; }
 const TEX_IMG = {}; let TEX_PAT = {}, TEX_READY = null;
 function loadTextures() {
@@ -513,6 +532,7 @@ function texSpec(service, mat) {
     if (/river/.test(m)) return { kind: 'rock', base: '#4b3a2a', cols: ['#8a6f52', '#a68a68', '#5c4733', '#b49a78', '#6e5841'], size: 7, angular: false };
     return { kind: 'rock', base: '#6f6f6d', cols: ['#7d7d7a', '#9a9a97', '#b3b1ac', '#5c5c5a', '#a39b8f'], size: 6, angular: true };
   }
+  if (service === 'fabric') return { kind: 'fabric', base: '#222', cols: [] };
   if (service === 'dirt') return { kind: 'dirt', base: '#4b3626', cols: ['#3a2a1d', '#5c4330', '#6b5038', '#2e2016', '#7a5e44'] };
   // sod
   const d = { kind: 'sod', base: '#2c7a2e', cols: ['#1f6326', '#2f8a34', '#3fa63f', '#56b94a', '#7ccd5a', '#246b2b', '#38993b'], w: 1, len: 1, dens: 1 };
@@ -561,6 +581,12 @@ function buildTile(sp, n, u) {
         g.save(); g.beginPath(); outline(X, Y, 0, 0); g.clip(); g.fillStyle = 'rgba(255,255,255,.16)'; g.beginPath(); g.ellipse(X - rx * .25, Y - ry * .3, rx * .6, ry * .5, rot, 0, Math.PI * 2); g.fill(); g.restore();
       });
     }
+  } else if (sp.kind === 'fabric') { // black woven geo-textile
+    const step = n / Math.max(4, Math.round(n / (2.4 * u))); g.lineWidth = Math.max(1, step * .5);
+    for (let k = 0, y = 0; y < n - .01; y += step, k++) { g.strokeStyle = k % 2 ? '#3b3b3b' : '#191919'; g.beginPath(); g.moveTo(0, y + step / 2); g.lineTo(n, y + step / 2); g.stroke(); }
+    for (let k = 0, x = 0; x < n - .01; x += step, k++) { g.strokeStyle = k % 2 ? 'rgba(95,95,95,.55)' : 'rgba(8,8,8,.55)'; g.beginPath(); g.moveTo(x + step / 2, 0); g.lineTo(x + step / 2, n); g.stroke(); }
+    const fib = Math.round(n * n / (30 * u * u));
+    for (let i = 0; i < fib; i++) { const x = R() * n, y = R() * n, len = (3 + R() * 6) * u, a = R() * Math.PI, dx = Math.cos(a) * len / 2, dy = Math.sin(a) * len / 2; each(x, y, len, (X, Y) => { g.strokeStyle = R() > .5 ? 'rgba(120,120,120,.35)' : 'rgba(0,0,0,.45)'; g.lineWidth = Math.max(.6, .5 * u); g.beginPath(); g.moveTo(X - dx, Y - dy); g.lineTo(X + dx, Y + dy); g.stroke(); }); }
   } else { // dirt
     const cnt = Math.round(n * n / (1.2 * u * u));
     for (let i = 0; i < cnt; i++) { const x = R() * n, y = R() * n, r = (.5 + R() * 1.8) * u, col = pick(); each(x, y, r, (X, Y) => { g.fillStyle = col; g.beginPath(); g.arc(X, Y, r, 0, Math.PI * 2); g.fill(); }); }
@@ -679,23 +705,21 @@ async function renderAnnotated(photo, srcBlob) {
 /* ---------- the editor ---------- */
 const TOOLS = [
   { id: 'select', ic: '👆', t: 'Select', hint: 'Tap a shape to select it. Drag a white dot to fix a point. Drag empty space to move; pinch or scroll to zoom.' },
-  { id: 'cal', ic: '📐', t: 'Calibrate', hint: 'Optional. Tap the two ends of something you know the length of (tape, 4-ft level, a paver) and enter its real length. Skip this if you will type measurements in yourself.' },
-  { id: 'line', ic: '📏', t: 'Length', hint: 'Tap along a hedge, edge or fence line. Tap ✔ Finish when done. Without calibration, you type the length in.' },
+  { id: 'line', ic: '📏', t: 'Length', hint: 'Tap along a hedge, edge or fence line. Tap ✔ Finish when done. Then Select the line → ＋ Save as item, type the length you measured, and pick Composite Edging, Geo-Textile, etc.' },
   { id: 'area', ic: '⬠', t: 'Area', hint: 'Tap each corner of the bed or lawn. Tap the first dot or ✔ Close shape. Then Select the shape → ＋ Save as item and pick the type of work and material: the area fills with that material.' },
-  { id: 'edge', ic: '▬', t: 'Edging', hint: 'Composite edging: tap along the edge line. Tap ✔ Finish when done. Shows as a board strip on the photo.' },
   { id: 'count', ic: '🔢', t: 'Count', hint: 'Tap each plant, tree or item. Tap ✔ Finish when done.' },
   { id: 'arrow', ic: '➚', t: 'Arrow', hint: 'Tap the tail, then the point.' },
   { id: 'text', ic: '🅣', t: 'Text', hint: 'Tap where the note should go.' },
   { id: 'free', ic: '✎', t: 'Draw', hint: 'Drag one finger to draw. Use two fingers to move the picture.' }
 ];
-const TOOL_SHAPE = { edge: { type: 'line', style: 'edging' } };
 const Ed = {
   photo: null, img: null, srcBlob: null, cv: null, ctx: null, v: { s: 1, tx: 0, ty: 0 }, tool: 'select', draft: null, sel: null,
-  bg: null, ptrs: new Map(), hist: [], color: ANNOT_COLORS[0], drag: null, gesture: null, moved: false, raf: 0, dirty: false, onClose: null,
+  whole: false, ptrs: new Map(), hist: [], color: ANNOT_COLORS[0], drag: null, gesture: null, moved: false, raf: 0, dirty: false, onClose: null,
 
   init() {
     this.cv = $('#edCanvas'); this.ctx = this.cv.getContext('2d');
     const tb = $('#edTools'); tb.innerHTML = '';
+    { const u = document.createElement('button'); u.id = 'edUndo'; u.innerHTML = '<span class="ic">↩</span>Undo'; tb.appendChild(u); const sp = document.createElement('i'); sp.className = 'sep'; tb.appendChild(sp); }
     TOOLS.forEach(t => { const b = document.createElement('button'); b.dataset.tool = t.id; b.innerHTML = '<span class="ic">' + t.ic + '</span>' + t.t; b.onclick = () => this.setTool(t.id); tb.appendChild(b); });
     const cl = $('#edColors'); cl.innerHTML = '<span style="font-size:12px;color:#aaa">Color</span>';
     ANNOT_COLORS.forEach(c => { const i = document.createElement('i'); i.style.background = c; i.onclick = () => this.setColor(c); i.dataset.c = c; cl.appendChild(i); });
@@ -705,7 +729,7 @@ const Ed = {
     cv.addEventListener('wheel', e => { e.preventDefault(); const r = cv.getBoundingClientRect(); this.zoomAt(e.clientX - r.left, e.clientY - r.top, e.deltaY < 0 ? 1.18 : 1 / 1.18); }, { passive: false });
     $('#zIn').onclick = () => this.zoomAt(this.cv.clientWidth / 2, this.cv.clientHeight / 2, 1.4);
     $('#zOut').onclick = () => this.zoomAt(this.cv.clientWidth / 2, this.cv.clientHeight / 2, 1 / 1.4);
-    $('#zFit').onclick = () => { this.fit(); this.draw(); };
+    $('#zFit').title = 'Fill screen / show whole photo'; $('#zFit').onclick = () => { this.whole = !this.whole; this.fit(); this.draw(); toast(this.whole ? 'Showing the whole photo' : 'Photo fills the screen', 1600); };
     $('#edUndo').onclick = () => this.undo();
     $('#edDone').onclick = () => this.close();
     $('#edMenu').onclick = () => this.menu();
@@ -716,12 +740,11 @@ const Ed = {
     const photo = JOB.photos.find(p => p.id === photoId); if (!photo) return;
     const rec = await DB.get('photos', photoId); if (!rec || !rec.orig) { toast('Photo file missing on this device'); return; }
     this.photo = photo; this.srcBlob = rec.orig; this.img = await createImageBitmap(rec.orig);
-    { const bw = 40, bh = Math.max(1, Math.round(40 * this.img.height / this.img.width)); this.bg = document.createElement('canvas'); this.bg.width = bw; this.bg.height = bh; const g = this.bg.getContext('2d'); g.drawImage(this.img, 0, 0, bw, bh); }
-    this.onClose = onClose; this.draft = null; this.sel = null; this.hist = []; this.dirty = false; this.tool = 'select';
+    this.onClose = onClose; this.draft = null; this.sel = null; this.hist = []; this.dirty = false; this.tool = 'select'; this.whole = false;
     photo.shapes = (photo.shapes || []).filter(s => s.type !== 'cal'); // drop old reference lines from earlier photos
     $('#screenEditor').hidden = false; $('#edTitle').textContent = photo.caption || 'Photo';
     this.resize(); this.fit(); this.setTool('select'); this.draw();
-    if (!ls.get('ws_flat_tip')) { ls.set('ws_flat_tip', '1'); setTimeout(() => toast('Tip: only measure things on the same flat surface as your reference. Photo measurements are estimates.', 5200), 600); }
+    if (!ls.get('ws_flat_tip')) { ls.set('ws_flat_tip', '1'); setTimeout(() => toast('Tip: outline the area on the photo, then type in the measurements you took with a tape or wheel.', 5200), 600); }
   },
   async close() {
     if (this.draft && this.draft.pts.length) { const ok = await confirmDlg('Discard the shape you are drawing?', 'Discard', 'bad'); if (!ok) return; }
@@ -739,7 +762,7 @@ const Ed = {
     if (this.onClose) this.onClose(this.dirty);
   },
   resize() { const w = this.cv.clientWidth, h = this.cv.clientHeight, d = window.devicePixelRatio || 1; this.cv.width = Math.round(w * d); this.cv.height = Math.round(h * d); },
-  fit() { const W = this.cv.clientWidth, H = this.cv.clientHeight, iw = this.img.width, ih = this.img.height; const s = Math.min(W / iw, H / ih) * 1; this.v = { s, tx: (W - iw * s) / 2, ty: (H - ih * s) / 2 }; },
+  fit() { const W = this.cv.clientWidth, H = this.cv.clientHeight, iw = this.img.width, ih = this.img.height; const s = this.whole ? Math.min(W / iw, H / ih) : Math.max(W / iw, H / ih); this.v = { s, tx: (W - iw * s) / 2, ty: (H - ih * s) / 2 }; },
   tf(p) { return [p[0] * this.v.s + this.v.tx, p[1] * this.v.s + this.v.ty]; },
   inv(x, y) { return [(x - this.v.tx) / this.v.s, (y - this.v.ty) / this.v.s]; },
   zoomAt(x, y, k) { const ns = Math.max(this.fitScale() * .5, Math.min(this.v.s * k, 12)), r = ns / this.v.s; this.v.tx = x - (x - this.v.tx) * r; this.v.ty = y - (y - this.v.ty) * r; this.v.s = ns; this.draw(); },
@@ -747,8 +770,7 @@ const Ed = {
   draw() { if (this.raf) return; this.raf = requestAnimationFrame(() => { this.raf = 0; this._draw(); }); },
   _draw() {
     if (!this.img) return; const d = window.devicePixelRatio || 1, c = this.ctx;
-    c.setTransform(d, 0, 0, d, 0, 0); c.fillStyle = '#2b2b2b'; c.fillRect(0, 0, this.cv.clientWidth, this.cv.clientHeight);
-    if (this.bg) { const W = this.cv.clientWidth, H = this.cv.clientHeight, sc = Math.max(W / this.bg.width, H / this.bg.height); c.imageSmoothingEnabled = true; c.imageSmoothingQuality = 'high'; c.drawImage(this.bg, (W - this.bg.width * sc) / 2, (H - this.bg.height * sc) / 2, this.bg.width * sc, this.bg.height * sc); c.fillStyle = 'rgba(0,0,0,.12)'; c.fillRect(0, 0, W, H); }
+    c.setTransform(d, 0, 0, d, 0, 0); c.fillStyle = '#222'; c.fillRect(0, 0, this.cv.clientWidth, this.cv.clientHeight);
     c.drawImage(this.img, this.v.tx, this.v.ty, this.img.width * this.v.s, this.img.height * this.v.s);
     drawShapes(c, this.photo, p => this.tf(p), 1, { selId: this.sel, draft: this.draft });
     this.renderActions();
@@ -812,10 +834,9 @@ const Ed = {
     if (t === 'select') { const h = this.hitShape([x, y]); this.sel = h ? h.id : null; this.draw(); return; }
     if (t === 'text') { askText('Add note', 'Type a short note…', '').then(txt => { if (!txt) return; this.pushHist(); this.photo.shapes.push({ id: uid(), type: 'text', pts: [ip], text: txt, color: this.color }); this.dirty = true; this.draw(); }); return; }
     if (t === 'arrow') { if (!this.draft) this.draft = { id: uid(), type: 'arrow', pts: [ip], color: this.color, draft: true }; else { this.draft.pts.push(ip); const s = this.draft; this.draft = null; this.pushHist(); s.draft = false; this.photo.shapes.push(s); this.dirty = true; } this.draw(); return; }
-    if (!this.draft) { const tt = TOOL_SHAPE[t] || { type: t }; this.draft = { id: uid(), type: tt.type, style: tt.style, tool: t, pts: [], color: '#f1c40f', draft: true }; }
+    if (!this.draft) { this.draft = { id: uid(), type: t, tool: t, pts: [], color: '#f1c40f', draft: true }; }
     if (this.draft.type === 'area' && this.draft.pts.length >= 3 && dist(this.tf(this.draft.pts[0]), [x, y]) < 24) { this.finishDraft(); return; }
     this.draft.pts.push(ip);
-    if (t === 'cal' && this.draft.pts.length === 2) { this.finishDraft(); return; }
     this.draw();
   },
   renderActions() {
@@ -843,7 +864,7 @@ const Ed = {
     if (act === 'undo') return this.undo();
     const s = this.sel && this.shapeById(this.sel);
     if (act === 'del' && s) {
-      if (s.itemId) { const ok = await confirmDlg('This shape is linked to a scope item. Delete the shape AND the item?', 'Delete both', 'bad'); if (!ok) return; JOB.items = JOB.items.filter(i => i.id !== s.itemId); }
+      if (s.itemId) { const ok = await confirmDlg('This shape is linked to a scope item. Delete the shape AND the item?', 'Delete both', 'bad'); if (!ok) return; JOB.items = JOB.items.filter(i => i.id !== s.itemId && i.addonOf !== s.itemId); }
       this.pushHist(); this.photo.shapes = this.photo.shapes.filter(x => x.id !== s.id); this.sel = null; this.dirty = true; this.draw(); App.itemsChanged();
     } else if ((act === 'edit' || act === 'item') && s) {
       this.openItemFor(s);
@@ -893,12 +914,11 @@ const Ed = {
   },
   async menu() {
     const choice = await dialog({
-      title: 'Photo options', body: '<div style="display:grid;gap:10px"><button class="btn gray" data-v="cap">✏️ Edit caption &amp; notes</button><button class="btn gray" data-v="cal">📐 Recalibrate</button><button class="btn gray" data-v="clr">🧹 Clear all annotations</button><button class="btn bad" data-v="del">🗑 Delete this photo</button></div>',
+      title: 'Photo options', body: '<div style="display:grid;gap:10px"><button class="btn gray" data-v="cap">✏️ Edit caption &amp; notes</button><button class="btn gray" data-v="clr">🧹 Clear all annotations</button><button class="btn bad" data-v="del">🗑 Delete this photo</button></div>',
       buttons: [{ label: 'Close', value: null, cls: 'gray' }],
       onOpen: (ov, close) => $$('[data-v]', ov).forEach(b => b.onclick = () => close(b.dataset.v))
     });
     if (choice === 'cap') { const t = await askText('Photo caption', 'e.g. Front bed, west side', this.photo.caption || ''); if (t != null) { this.photo.caption = t; $('#edTitle').textContent = t || 'Photo'; this.dirty = true; } const n = await askText('Internal notes for the estimator (optional)', 'Not shown to the customer', this.photo.notes || '', true); if (n != null) { this.photo.notes = n; this.dirty = true; } }
-    else if (choice === 'cal') { this.setTool('cal'); }
     else if (choice === 'clr') { if (await confirmDlg('Remove every shape on this photo? Linked scope items will stay but lose their outline.', 'Clear', 'bad')) { this.pushHist(); this.photo.shapes.forEach(s => { }); this.photo.shapes = []; this.photo.calibration = null; this.dirty = true; this.sel = null; this.draw(); } }
     else if (choice === 'del') { if (await confirmDlg('Delete this photo and its annotations?', 'Delete', 'bad')) { const id = this.photo.id; this.photo.shapes = []; this.draft = null; this.photo = null; this.img = null; $('#screenEditor').hidden = true; await App.deletePhoto(id); } }
   }
@@ -1005,7 +1025,7 @@ const App = {
     this.renderJobHead();
     $('#itemCount').textContent = JOB.items.length ? '(' + JOB.items.length + ')' : '';
     const box = $('#itemList');
-    if (!JOB.items.length) box.innerHTML = '<div class="empty">Take a photo, calibrate it, then outline beds and hedges to build the scope list.</div>';
+    if (!JOB.items.length) box.innerHTML = '<div class="empty">Take a photo, then outline beds and hedges to build the scope list.</div>';
     else {
       const cards = [];
       for (const it of JOB.items) {
@@ -1077,27 +1097,35 @@ const App = {
       const calc = kind === 'area' ? null : photoEst;   // areas are entered as length × width sections instead
       const calcRounded = calc != null ? roundForMeasure(kind, calc) : null;
       let service = it ? it.service : (o.service || ls.get('ws_last_service', ''));
-      const compatible = k => !kind || SERVICES[k].measure === kind || SERVICES[k].measure === 'any';
+      const compatible = k => !kind || SERVICES[k].measure === kind || SERVICES[k].measure === 'any' || (kind === 'area' && !!SERVICES[k].areaOk);
       if (service && (!SERVICES[service] || !compatible(service))) service = '';
       $('#itTitle').textContent = it ? 'Edit scope item' : 'New scope item';
-      $('#itFrom').textContent = shape ? (kind === 'area' ? 'Outlined on the photo. Enter length × width for each section; the sections add up to the total.' + (photoEst != null ? ' (Photo estimate ≈ ' + fmt(photoEst, 0) + ' sq ft, for reference only.)' : '') : calc == null && kind !== 'count' ? 'Highlighted on the photo. Not calibrated, so type in the measurement you took.' : calc != null ? 'Measured from photo: ' + (kind === 'area' ? fmt(calc, 0) + ' sq ft' : kind === 'length' ? fmt(calc, 1) + ' ft' : fmt(calc, 0) + ' counted') + ' (≈ estimate — confirm with tape or wheel if the job is big).' : '') : 'Typed-in item (no photo measurement).';
+      $('#itFrom').textContent = shape ? (kind === 'area' ? 'Outlined on the photo. Enter length × width for each section; the sections add up to the total.' + (photoEst != null ? ' (Photo estimate ≈ ' + fmt(photoEst, 0) + ' sq ft, for reference only.)' : '') : calc == null && kind !== 'count' ? 'Highlighted on the photo. Type in the measurement you took.' : calc != null ? 'Measured from photo: ' + (kind === 'area' ? fmt(calc, 0) + ' sq ft' : kind === 'length' ? fmt(calc, 1) + ' ft' : fmt(calc, 0) + ' counted') + ' (≈ estimate — confirm with tape or wheel if the job is big).' : '') : 'Typed-in item (no photo measurement).';
       const chips = $('#itChips'); chips.innerHTML = '';
-      Object.keys(SERVICES).filter(compatible).forEach(k => { const b = document.createElement('button'); b.className = 'chip'; b.dataset.k = k; b.innerHTML = '<span class="ic">' + SERVICES[k].icon + '</span>' + SERVICES[k].label; b.onclick = () => { service = k; ls.set('ws_last_service', k); refresh(true); }; chips.appendChild(b); });
+      Object.keys(SERVICES).filter(compatible).forEach(k => { const b = document.createElement('button'); b.className = 'chip'; b.dataset.k = k; b.innerHTML = '<span class="ic">' + SERVICES[k].icon + '</span>' + SERVICES[k].label; b.onclick = () => { service = k; ls.set('ws_last_service', k); refresh(true); if (dimTotal() > 0) applyDims(); }; chips.appendChild(b); });
       $('#itName').value = it && !isAutoName(it) ? it.name : ''; $('#itNotes').value = it ? (it.notes || '') : ''; $('#itVerified').checked = it ? !!it.verified : false;
       $('#itValue').value = it ? it.value : (calcRounded != null ? calcRounded : '');
       $('#itDepth').value = it && it.depthIn ? it.depthIn : ''; $('#itHeight').value = it && it.heightFt ? it.heightFt : '';
       $('#itMeasure').value = it ? itemMeasure(it) : (kind || 'area');
-      $('#itEdge').checked = false;
       $('#itDelete').hidden = !it;
       let curMat = it ? it.material : '';
+      // add-ons already saved for this item (edit mode)
+      const linkFab = it ? JOB.items.find(i => i.addonOf === it.id && i.service === 'fabric') : null, linkEdge = it ? JOB.items.find(i => i.addonOf === it.id && i.service === 'edging') : null;
+      let fabTouched = !!linkFab, edgeTouched = !!linkEdge;
+      $('#itFabChk').checked = !!linkFab; $('#itFabQty').value = linkFab ? linkFab.value : '';
+      $('#itEdgeChk').checked = !!linkEdge; $('#itEdgeQty').value = linkEdge ? linkEdge.value : '';
       let dims = it && Array.isArray(it.dims) && it.dims.length ? it.dims.map(d => [d[0], d[1]]) : [['', '']];
       const goodDims = () => dims.filter(d => parseFloat(d[0]) > 0 && parseFloat(d[1]) > 0);
       const dimTotal = () => goodDims().reduce((t, d) => t + parseFloat(d[0]) * parseFloat(d[1]), 0);
+      const dimPerim = () => goodDims().reduce((t, d) => t + 2 * (parseFloat(d[0]) + parseFloat(d[1])), 0);
+      const fabricFromArea = () => service === 'fabric' && (kind === 'area' || !!(it && it.dims && it.dims.length));
+      const valFromDims = t => service === 'fabric' ? t / FABRIC_WIDTH_FT : t;   // geo-textile is sent as lin ft of fabric
+      const areaNow = () => dimTotal() > 0 ? dimTotal() : (parseFloat($('#itValue').value) || 0);
       function dimText() {
         const t = dimTotal(), g = goodDims();
-        $('#itDimTot').textContent = t > 0 ? 'Total: ' + fmt(t, 1) + ' sq ft' + (g.length > 1 ? '  (' + g.map(d => d[0] + '×' + d[1]).join(' + ') + ')' : '') : '';
+        $('#itDimTot').textContent = t > 0 ? 'Total: ' + fmt(t, 1) + ' sq ft' + (g.length > 1 ? '  (' + g.map(d => d[0] + '×' + d[1]).join(' + ') + ')' : '') + (service === 'fabric' ? '  ÷ ' + FABRIC_WIDTH_FT + ' ft wide fabric = ' + fmt(t / FABRIC_WIDTH_FT, 1) + ' lin ft' : '') : '';
       }
-      function applyDims() { const t = dimTotal(); if (t > 0) $('#itValue').value = Math.round(t * 10) / 10; dimText(); refresh(false); }
+      function applyDims() { const t = dimTotal(); if (t > 0) $('#itValue').value = Math.round(valFromDims(t) * 10) / 10; dimText(); refresh(false); }
       function renderDims() {
         const box = $('#itDims'); box.innerHTML = '';
         dims.forEach((d, i) => {
@@ -1119,28 +1147,45 @@ const App = {
         if (mats) { const sel = $('#itMat'); const keep = userPicked ? '' : curMat; sel.innerHTML = '<option value="">— decide at estimate —</option>' + mats.map(m => '<option>' + esc(m) + '</option>').join(''); sel.value = keep && mats.includes(keep) ? keep : ''; if (userPicked) curMat = ''; }
         $('#itMeasureWrap').hidden = !(s && s.measure === 'any' && !shape);
         const m = !s ? (kind || 'area') : s.measure === 'any' ? (shape ? kind : $('#itMeasure').value) : s.measure;
-        $('#itDimWrap').hidden = m !== 'area';
+        $('#itDimWrap').hidden = !(m === 'area' || fabricFromArea());
         $('#itUnit').textContent = MEASURE_UNIT[m]; $('#itValueLbl').textContent = MEASURE_LABEL[m] + (shape && calc != null ? ' (from photo — editable)' : '');
         $('#itDepthWrap').hidden = !(s && s.depth != null);
         if (s && s.depth != null && userPicked && !$('#itDepth').value) $('#itDepth').value = s.depth;
         if (s && s.depth != null && !$('#itDepth').value) $('#itDepth').value = s.depth;
         $('#itHeightWrap').hidden = !(s && s.height);
         $('#itName').placeholder = (s ? 'e.g. ' + (service === 'hedge' ? 'Back hedge' : service === 'plants' ? 'Front shrubs' : 'Front bed') : 'e.g. Front bed, Side of pool, Back hedge') + ' (blank = named after the material)';
-        const showEdge = !it && perim && (service === 'mulch' || service === 'rock');
-        $('#itEdgeWrap').hidden = !showEdge; if (showEdge) $('#itEdgeTx').textContent = 'Also add edging along the outside (≈ ' + fmt(perim, 1) + ' lin ft)'; else $('#itEdge').checked = false;
+        const addOk = (service === 'mulch' || service === 'rock') && m === 'area';
+        $('#itAddons').hidden = !addOk; if (addOk) addonUi();
         const v = parseFloat($('#itValue').value) || 0, d = parseFloat($('#itDepth').value) || 0;
         $('#itCy').textContent = (s && s.depth != null && v && d) ? '≈ ' + (v * d / 12 / 27).toFixed(2) + ' cu yd (order ' + roundUpTenth(v * d / 12 / 27).toFixed(1) + ')' : '';
         $('#itCalcHint').textContent = (calcRounded != null && v && Math.abs(v - calcRounded) > 0.01) ? 'Edited from photo value (' + fmt(calcRounded, m === 'length' ? 1 : 0) + '). This item will no longer auto-update if you recalibrate.' : '';
       }
+      function addonUi() {
+        const fc = $('#itFabChk').checked, ec = $('#itEdgeChk').checked; $('#itFabRow').hidden = !fc; $('#itEdgeRow').hidden = !ec;
+        const a = areaNow(), ep = dimPerim() > 0 ? dimPerim() : (perim || 0), fl = a / FABRIC_WIDTH_FT;
+        if (fc && !fabTouched) $('#itFabQty').value = fl > 0 ? Math.round(fl * 10) / 10 : '';
+        if (ec && !edgeTouched) $('#itEdgeQty').value = ep > 0 ? Math.round(ep * 10) / 10 : '';
+        $('#itFabHint').textContent = a > 0 ? fmt(a, 0) + ' sq ft ÷ ' + FABRIC_WIDTH_FT + ' ft wide fabric ≈ ' + fmt(fl, 1) + ' lin ft. Change it if your fabric is a different width or you want overlap.' : 'Enter the length of fabric needed.';
+        $('#itEdgeHint').textContent = dimPerim() > 0 ? 'Around the outside ≈ ' + fmt(ep, 1) + ' lin ft. Lower it if part of the edge runs against a wall, walk or driveway, or if sections touch.' : (ep > 0 ? 'Taken from the photo outline. Edit if needed.' : 'Enter the length of edging needed.');
+      }
+      $('#itFabChk').onchange = () => { if (!$('#itFabQty').value) fabTouched = false; refresh(false); };
+      $('#itEdgeChk').onchange = () => { if (!$('#itEdgeQty').value) edgeTouched = false; refresh(false); };
+      $('#itFabQty').oninput = () => { fabTouched = $('#itFabQty').value !== ''; };
+      $('#itEdgeQty').oninput = () => { edgeTouched = $('#itEdgeQty').value !== ''; };
       $('#itMat').onchange = () => { curMat = $('#itMat').value; };
       ['itValue', 'itDepth', 'itMeasure'].forEach(id => { $('#' + id).oninput = () => refresh(false); $('#' + id).onchange = () => refresh(false); });
       $('#itCancel').onclick = () => done('cancel');
-      $('#itDelete').onclick = async () => { if (await confirmDlg('Delete this scope item?', 'Delete', 'bad')) { JOB.items = JOB.items.filter(i => i.id !== it.id); done('deleted'); } };
+      $('#itDelete').onclick = async () => { const n = JOB.items.filter(i => i.addonOf === it.id).length; if (await confirmDlg(n ? 'Delete this scope item and its ' + n + ' add-on' + (n > 1 ? 's' : '') + '?' : 'Delete this scope item?', 'Delete', 'bad')) { JOB.items = JOB.items.filter(i => i.id !== it.id && i.addonOf !== it.id); done('deleted'); } };
       $('#itSave').onclick = () => {
         if (!service) { toast('Pick the type of work first'); return; }
         const s = SERVICES[service]; const m = s.measure === 'any' ? (shape ? kind : $('#itMeasure').value) : s.measure;
-        let val = parseFloat($('#itValue').value); if (!(val > 0) && dimTotal() > 0) val = Math.round(dimTotal() * 10) / 10;
+        let val = parseFloat($('#itValue').value); if (!(val > 0) && dimTotal() > 0) val = Math.round(valFromDims(dimTotal()) * 10) / 10;
         if (!(val > 0)) { toast('Enter a quantity greater than 0'); return; }
+        const addOn = !$('#itAddons').hidden, fabOn = addOn && $('#itFabChk').checked, edgeOn = addOn && $('#itEdgeChk').checked;
+        const fabQ = parseFloat($('#itFabQty').value), edgeQ = parseFloat($('#itEdgeQty').value);
+        if (fabOn && !(fabQ > 0)) { toast('Enter the geo-textile length'); return; }
+        if (edgeOn && !(edgeQ > 0)) { toast('Enter the edging length'); return; }
+        const prevName = it ? it.name : '';
         const item = it || { id: uid(), createdAt: nowIso() };
         const typedName = $('#itName').value.trim(), autoNm = !typedName;
         const matPicked = s.mats ? $('#itMat').value : '';
@@ -1149,12 +1194,21 @@ const App = {
           material: s.mats ? $('#itMat').value : '', depthIn: s.depth != null ? (parseFloat($('#itDepth').value) || s.depth) : 0, heightFt: s.height ? (parseFloat($('#itHeight').value) || 0) : 0,
           notes: $('#itNotes').value.trim(), verified: $('#itVerified').checked, method: shape ? 'photo' : (item.method || 'manual'),
           photoId: photo ? photo.id : (item.photoId || ''), shapeId: shape ? shape.id : (item.shapeId || ''),
-          dims: (m === 'area' && Math.abs(dimTotal() - val) < 0.6) ? goodDims().map(d => [parseFloat(d[0]), parseFloat(d[1])]) : []
+          dims: ((m === 'area' && Math.abs(dimTotal() - val) < 0.6) || (fabricFromArea() && Math.abs(valFromDims(dimTotal()) - val) < 0.6)) ? goodDims().map(d => [parseFloat(d[0]), parseFloat(d[1])]) : []
         });
         item.override = !!(calcRounded != null && Math.abs(item.value - calcRounded) > 0.01);
         if (!it) JOB.items.push(item);
         if (shape) shape.itemId = item.id;
-        if ($('#itEdge').checked && perim) JOB.items.push({ id: uid(), createdAt: nowIso(), name: item.name + ' edging', service: 'edging', measure: 'length', value: Math.round(perim * 10) / 10, material: '', depthIn: 0, heightFt: 0, notes: '', verified: false, method: 'photo', photoId: photo.id, shapeId: '', override: false });
+        if (addOn) {
+          const sync = (svc, on, q, suffix) => {
+            const lk = JOB.items.find(x => x.addonOf === item.id && x.service === svc);
+            if (!on) { if (lk) JOB.items = JOB.items.filter(x => x !== lk); return; }
+            const v = Math.round(q * 10) / 10;
+            if (lk) { lk.value = v; if (lk.name === prevName + suffix) lk.name = item.name + suffix; }
+            else JOB.items.push({ id: uid(), createdAt: nowIso(), name: item.name + suffix, service: svc, measure: 'length', value: v, material: '', depthIn: 0, heightFt: 0, notes: '', verified: false, method: item.method, photoId: item.photoId || '', shapeId: '', override: false, addonOf: item.id });
+          };
+          sync('fabric', fabOn, fabQ, ' geo-textile'); sync('edging', edgeOn, edgeQ, ' edging');
+        }
         done('saved');
       };
       function done(r) { sh.hidden = true; resolve(r); }
